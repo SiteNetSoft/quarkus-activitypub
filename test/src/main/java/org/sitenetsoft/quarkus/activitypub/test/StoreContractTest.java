@@ -1,4 +1,4 @@
-package org.sitenetsoft.quarkus.activitypub.deployment;
+package org.sitenetsoft.quarkus.activitypub.test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -69,7 +69,7 @@ public abstract class StoreContractTest {
     }
 
     @Test
-    void actorSaveFindAndKeys() {
+    public void actorSaveFindAndKeys() {
         String username = "u" + unique();
         LocalActor actor = actor(username, "Alice");
         long before = actors().countLocalActors();
@@ -95,7 +95,7 @@ public abstract class StoreContractTest {
     }
 
     @Test
-    void actorSaveTwiceUpdates() {
+    public void actorSaveTwiceUpdates() {
         String username = "u" + unique();
         actors().save(actor(username, "First"), KEYS);
         long count = actors().countLocalActors();
@@ -109,7 +109,7 @@ public abstract class StoreContractTest {
     }
 
     @Test
-    void objectPutFindTombstone() {
+    public void objectPutFindTombstone() {
         URI id = local("objects/" + unique());
         Note note = new Note();
         note.id(id).content("hello").to(ObjectOrLink.of(Audience.PUBLIC));
@@ -131,7 +131,7 @@ public abstract class StoreContractTest {
     }
 
     @Test
-    void deleteByActorRemovesObjects() {
+    public void deleteByActorRemovesObjects() {
         URI author = remote("users/" + unique());
         URI otherAuthor = remote("users/" + unique());
         URI mine = remote("notes/" + unique());
@@ -146,7 +146,7 @@ public abstract class StoreContractTest {
     }
 
     @Test
-    void markSeenIsIdempotent() {
+    public void markSeenIsIdempotent() {
         URI activity = remote("activities/" + unique());
         assertTrue(objects().markSeen(activity, Duration.ofDays(7)));
         assertFalse(objects().markSeen(activity, Duration.ofDays(7)));
@@ -154,7 +154,17 @@ public abstract class StoreContractTest {
     }
 
     @Test
-    void outboxPagingNewestFirst() {
+    public void forgetSeenAllowsTheIdAgain() {
+        URI activity = remote("activities/" + unique());
+        assertTrue(objects().markSeen(activity, Duration.ofDays(7)));
+        objects().forgetSeen(activity);
+        assertTrue(objects().markSeen(activity, Duration.ofDays(7)), "a forgotten id counts as new");
+        assertFalse(objects().markSeen(activity, Duration.ofDays(7)));
+        objects().forgetSeen(remote("activities/never" + unique()));
+    }
+
+    @Test
+    public void outboxPagingNewestFirst() {
         URI actor = local("users/" + unique());
         Instant t0 = Instant.parse("2026-01-01T00:00:00Z");
         for (int i = 0; i < 5; i++) {
@@ -180,7 +190,7 @@ public abstract class StoreContractTest {
     }
 
     @Test
-    void followersAddRemovePageCount() {
+    public void followersAddRemovePageCount() {
         URI me = local("users/" + unique());
         URI a = remote("users/a" + unique());
         URI b = remote("users/b" + unique());
@@ -204,7 +214,7 @@ public abstract class StoreContractTest {
     }
 
     @Test
-    void followerInboxesDistinct() {
+    public void followerInboxesDistinct() {
         URI me = local("users/" + unique());
         URI shared = remote("inbox");
         followers().add(me, remote("users/a" + unique()), shared, FollowState.ACCEPTED, remote("f/1"));
@@ -219,7 +229,7 @@ public abstract class StoreContractTest {
     }
 
     @Test
-    void removeAllClearsBothDirections() {
+    public void removeAllClearsBothDirections() {
         URI me = local("users/" + unique());
         URI other = local("users/" + unique());
         URI gone = remote("users/" + unique());
@@ -236,7 +246,7 @@ public abstract class StoreContractTest {
     }
 
     @Test
-    void followingState() {
+    public void followingState() {
         URI me = local("users/" + unique());
         URI a = remote("users/a" + unique());
         URI b = remote("users/b" + unique());
@@ -256,7 +266,7 @@ public abstract class StoreContractTest {
     }
 
     @Test
-    void relationsInAnyState() {
+    public void relationsInAnyState() {
         URI me = local("users/" + unique());
         URI them = remote("users/" + unique());
         URI follow = remote("follows/" + unique());
@@ -284,7 +294,7 @@ public abstract class StoreContractTest {
     }
 
     @Test
-    void deliverySaveClaimUpdate() {
+    public void deliverySaveClaimUpdate() {
         // far-future base so rows left behind by other tests (due "now") never sort first
         Instant now = Instant.parse("2100-01-01T00:00:00Z");
         Delivery due = delivery(now.minusSeconds(10));
@@ -322,14 +332,14 @@ public abstract class StoreContractTest {
     }
 
     @Test
-    void deliveryClaimRespectsLimit() {
+    public void deliveryClaimRespectsLimit() {
         Instant now = Instant.parse("2200-01-01T00:00:00Z");
         deliveries().save(List.of(delivery(now.minusSeconds(3)), delivery(now.minusSeconds(2)), delivery(now.minusSeconds(1))));
         assertEquals(2, deliveries().claimDue(now, 2).size());
     }
 
     @Test
-    void pendingCountAndOldest() {
+    public void pendingCountAndOldest() {
         long before = deliveries().pendingCount();
         Instant oldest = Instant.parse("2000-01-01T00:00:00Z");
         Delivery a = delivery(oldest);
@@ -346,7 +356,7 @@ public abstract class StoreContractTest {
     }
 
     @Test
-    void hostHealthFailuresAndReset() {
+    public void hostHealthFailuresAndReset() {
         String host = unique() + ".example";
         HostHealth unknown = deliveries().host(host);
         assertEquals(host, unknown.host());

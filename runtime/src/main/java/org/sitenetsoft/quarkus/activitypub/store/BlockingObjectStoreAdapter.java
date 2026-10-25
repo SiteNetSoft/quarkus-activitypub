@@ -49,6 +49,11 @@ final class BlockingObjectStoreAdapter implements ObjectStore {
     }
 
     @Override
+    public void forgetSeen(URI activityId) {
+        await(d.forgetSeen(activityId));
+    }
+
+    @Override
     public Page<Activity> outbox(URI actorId, int page, int size) {
         return await(d.outbox(actorId, page, size));
     }

@@ -26,6 +26,11 @@ public interface ReactiveObjectStore {
 
     Uni<Boolean> markSeen(URI activityId, Duration retention);
 
+    /** See {@link ObjectStore#forgetSeen}; the default does nothing. */
+    default Uni<Void> forgetSeen(URI activityId) {
+        return Uni.createFrom().voidItem();
+    }
+
     Uni<Page<Activity>> outbox(URI actorId, int page, int size);
 
     Uni<Long> outboxCount(URI actorId);

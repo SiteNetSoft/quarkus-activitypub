@@ -93,6 +93,11 @@ public class InMemoryObjectStore implements ObjectStore {
     }
 
     @Override
+    public void forgetSeen(URI activityId) {
+        seen.remove(activityId);
+    }
+
+    @Override
     public Page<Activity> outbox(URI actorId, int page, int size) {
         List<Activity> all = outboxEntries(actorId)
                 .sorted(Comparator.comparing((Entry e) -> published(e.object())).thenComparingLong(Entry::seq).reversed())

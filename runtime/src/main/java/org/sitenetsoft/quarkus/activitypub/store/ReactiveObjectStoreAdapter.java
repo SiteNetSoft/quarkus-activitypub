@@ -51,6 +51,11 @@ final class ReactiveObjectStoreAdapter implements ReactiveObjectStore {
     }
 
     @Override
+    public Uni<Void> forgetSeen(URI activityId) {
+        return offload(() -> d.forgetSeen(activityId));
+    }
+
+    @Override
     public Uni<Page<Activity>> outbox(URI actorId, int page, int size) {
         return offload(() -> d.outbox(actorId, page, size));
     }

@@ -31,6 +31,13 @@ public interface ObjectStore {
     /** True the first time {@code activityId} is seen within {@code retention}, false for a repeat. */
     boolean markSeen(URI activityId, Duration retention);
 
+    /**
+     * Forgets that {@code activityId} was seen, so a redelivery of it is processed again; called when processing it
+     * failed. The default does nothing (a failed activity then stays deduplicated).
+     */
+    default void forgetSeen(URI activityId) {
+    }
+
     /** Public local activities by {@code actorId}, newest first; {@code page} is 1-based. */
     Page<Activity> outbox(URI actorId, int page, int size);
 

@@ -25,6 +25,7 @@ import org.sitenetsoft.quarkus.activitypub.store.memory.InMemoryActorStore;
 import org.sitenetsoft.quarkus.activitypub.store.memory.InMemoryDeliveryStore;
 import org.sitenetsoft.quarkus.activitypub.store.memory.InMemoryFollowerStore;
 import org.sitenetsoft.quarkus.activitypub.store.memory.InMemoryObjectStore;
+import org.sitenetsoft.quarkus.activitypub.test.StoreContractTest;
 
 import io.quarkus.test.QuarkusUnitTest;
 
@@ -32,7 +33,7 @@ public class InMemoryStoresTest extends StoreContractTest {
 
     @RegisterExtension
     static final QuarkusUnitTest config = new QuarkusUnitTest()
-            .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class).addClass(StoreContractTest.class))
+            .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class))
             .overrideConfigKey("quarkus.activitypub.base-url", "https://example.org");
 
     @Inject

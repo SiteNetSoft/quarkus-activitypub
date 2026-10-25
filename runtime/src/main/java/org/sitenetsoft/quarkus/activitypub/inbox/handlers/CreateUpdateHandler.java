@@ -5,6 +5,7 @@ import java.util.Optional;
 
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.RequestScoped;
 import jakarta.inject.Inject;
 
 import org.jboss.logging.Logger;
@@ -23,6 +24,7 @@ import org.sitenetsoft.quarkus.activitypub.store.Stores;
  * received in a local actor's own inbox, and only from the actor's own host) is kept with {@code ObjectStore.putRemote}
  * when {@link RemoteObjectPolicy} says {@code KEEP}. Ignored: objects without an id, with an id on another host than
  * the actor, whose {@code attributedTo} is missing or names anyone but the actor, or that we hold as another actor's.
+ * A referenced object is fetched in {@code prepare}, outside the store transaction.
  */
 public final class CreateUpdateHandler {
 
@@ -44,6 +46,11 @@ public final class CreateUpdateHandler {
         }
 
         @Override
+        public void prepare(Create create, InboundActivityContext ctx) {
+            keeper.prepare(create, ctx);
+        }
+
+        @Override
         public void handle(Create create, InboundActivityContext ctx) {
             keeper.keep(create, ctx);
         }
@@ -62,8 +69,31 @@ public final class CreateUpdateHandler {
         }
 
         @Override
+        public void prepare(Update update, InboundActivityContext ctx) {
+            keeper.prepare(update, ctx);
+        }
+
+        @Override
         public void handle(Update update, InboundActivityContext ctx) {
             keeper.keep(update, ctx);
+        }
+    }
+
+    /** The object {@link Keeper#prepare} found for the inbound activity being processed. */
+    @RequestScoped
+    public static class PreparedObject {
+
+        private Activity activity;
+        private Optional<ASObject> object = Optional.empty();
+
+        void found(Activity activity, Optional<ASObject> object) {
+            this.activity = activity;
+            this.object = object;
+        }
+
+        /** What {@code prepare} found for {@code activity}; its embedded object when it was not prepared. */
+        Optional<ASObject> objectOf(Activity activity) {
+            return activity == this.activity ? object : activity.embeddedObject();
         }
     }
 
@@ -80,7 +110,11 @@ public final class CreateUpdateHandler {
         @Inject
         RemoteObjectPolicy policy;
 
-        void keep(Activity activity, InboundActivityContext ctx) {
+        @Inject
+        PreparedObject prepared;
+
+        /** The embedded object, or the referenced one fetched (network: runs outside the transaction). */
+        void prepare(Activity activity, InboundActivityContext ctx) {
             URI actor = ctx.signerActor();
             Optional<ASObject> object = activity.embeddedObject();
             Optional<URI> reference = activity.objectUri();
@@ -90,10 +124,18 @@ public final class CreateUpdateHandler {
                 if (!sameHost(reference.get(), actor)) {
                     LOG.debugf("%s %s by %s references %s on another host, not fetched", activity.primaryType(),
                             activity.id(), actor, reference.get());
+                    prepared.found(activity, Optional.empty());
                     return;
                 }
                 object = Optional.of(client.fetch(reference.get()));
             }
+            prepared.found(activity, object);
+        }
+
+        /** Store only: keeps what {@link #prepare} found. */
+        void keep(Activity activity, InboundActivityContext ctx) {
+            URI actor = ctx.signerActor();
+            Optional<ASObject> object = prepared.objectOf(activity);
             if (object.isEmpty() || object.get().id() == null) {
                 return;
             }

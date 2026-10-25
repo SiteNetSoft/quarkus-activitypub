@@ -134,9 +134,10 @@ class ActivityPubProcessor {
                 .build());
         beans.produce(AdditionalBeanBuildItem.builder()
                 .addBeanClasses(InboxHandler.class, InboxProcessor.class, InboundActivityContext.class, InboxLog.class,
-                        InboxMetrics.class, FollowHandler.class, UndoHandler.class, AcceptRejectHandler.OnAccept.class,
-                        AcceptRejectHandler.OnReject.class, CreateUpdateHandler.OnCreate.class,
-                        CreateUpdateHandler.OnUpdate.class, CreateUpdateHandler.Keeper.class, DeleteHandler.class,
+                        InboxMetrics.class, FollowHandler.class, FollowHandler.PreparedFollower.class,
+                        UndoHandler.class, AcceptRejectHandler.OnAccept.class, AcceptRejectHandler.OnReject.class,
+                        CreateUpdateHandler.OnCreate.class, CreateUpdateHandler.OnUpdate.class,
+                        CreateUpdateHandler.Keeper.class, CreateUpdateHandler.PreparedObject.class, DeleteHandler.class,
                         ConfigDomainPolicy.class, DefaultFollowPolicy.class, DefaultRemoteObjectPolicy.class)
                 .setUnremovable()
                 .build());
