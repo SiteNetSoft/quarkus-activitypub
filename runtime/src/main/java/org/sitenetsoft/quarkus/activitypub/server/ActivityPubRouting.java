@@ -90,7 +90,7 @@ public final class ActivityPubRouting {
      * Subscribes to {@code uni} and hands its item to {@code onItem} on the request's Vert.x context (store views may
      * complete on a worker thread). A failure, or an exception thrown by {@code onItem}, answers {@code 500}.
      */
-    static <T> void respond(RoutingContext ctx, Uni<T> uni, Consumer<T> onItem) {
+    public static <T> void respond(RoutingContext ctx, Uni<T> uni, Consumer<T> onItem) {
         Context context = Vertx.currentContext();
         Uni<T> onContext = context == null ? uni : uni.emitOn(command -> context.runOnContext(v -> command.run()));
         onContext.subscribe().with(item -> {

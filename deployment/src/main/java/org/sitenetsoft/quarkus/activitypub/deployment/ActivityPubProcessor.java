@@ -3,11 +3,13 @@ package org.sitenetsoft.quarkus.activitypub.deployment;
 import java.util.Optional;
 
 import org.jboss.logging.Logger;
+import org.sitenetsoft.quarkus.activitypub.ActivityPub;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubBuildTimeConfig;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubJson;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubObjectMapperCustomizer;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubRecorder;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubUrls;
+import org.sitenetsoft.quarkus.activitypub.ReactiveActivityPub;
 import org.sitenetsoft.quarkus.activitypub.actor.ActorDocuments;
 import org.sitenetsoft.quarkus.activitypub.actor.InstanceActor;
 import org.sitenetsoft.quarkus.activitypub.actor.LocalActors;
@@ -16,6 +18,24 @@ import org.sitenetsoft.quarkus.activitypub.client.ActivityPubClientImpl;
 import org.sitenetsoft.quarkus.activitypub.client.BlockingActivityPubClient;
 import org.sitenetsoft.quarkus.activitypub.client.ReactiveActivityPubClient;
 import org.sitenetsoft.quarkus.activitypub.client.RemoteCache;
+import org.sitenetsoft.quarkus.activitypub.inbox.ConfigDomainPolicy;
+import org.sitenetsoft.quarkus.activitypub.inbox.DefaultFollowPolicy;
+import org.sitenetsoft.quarkus.activitypub.inbox.DefaultRemoteObjectPolicy;
+import org.sitenetsoft.quarkus.activitypub.inbox.DomainPolicy;
+import org.sitenetsoft.quarkus.activitypub.inbox.FollowPolicy;
+import org.sitenetsoft.quarkus.activitypub.inbox.Inbound;
+import org.sitenetsoft.quarkus.activitypub.inbox.InboundActivityContext;
+import org.sitenetsoft.quarkus.activitypub.inbox.InboundActivityHandler;
+import org.sitenetsoft.quarkus.activitypub.inbox.InboxHandler;
+import org.sitenetsoft.quarkus.activitypub.inbox.InboxLog;
+import org.sitenetsoft.quarkus.activitypub.inbox.InboxMetrics;
+import org.sitenetsoft.quarkus.activitypub.inbox.InboxProcessor;
+import org.sitenetsoft.quarkus.activitypub.inbox.RemoteObjectPolicy;
+import org.sitenetsoft.quarkus.activitypub.inbox.handlers.AcceptRejectHandler;
+import org.sitenetsoft.quarkus.activitypub.inbox.handlers.CreateUpdateHandler;
+import org.sitenetsoft.quarkus.activitypub.inbox.handlers.DeleteHandler;
+import org.sitenetsoft.quarkus.activitypub.inbox.handlers.FollowHandler;
+import org.sitenetsoft.quarkus.activitypub.inbox.handlers.UndoHandler;
 import org.sitenetsoft.quarkus.activitypub.keys.ActorKeyResolver;
 import org.sitenetsoft.quarkus.activitypub.keys.ActorSigningKeyProvider;
 import org.sitenetsoft.quarkus.activitypub.nodeinfo.ActivityPubNodeInfoContributor;
@@ -83,7 +103,7 @@ class ActivityPubProcessor {
      * Routes, JSON, the instance actor, the remote client, the WebFinger, NodeInfo and HTTP signature plug-ins, when
      * {@code quarkus.activitypub.enabled}.
      * The resolver is also indexed because the WebFinger extension only registers its endpoint when the combined index
-     * holds a resolver.
+     * holds a resolver; so is the {@code @Inbound} qualifier, so ArC knows it.
      */
     @BuildStep
     void federationBeans(ActivityPubBuildTimeConfig config, BuildProducer<AdditionalBeanBuildItem> beans,
@@ -100,7 +120,17 @@ class ActivityPubProcessor {
                         ActorKeyResolver.class, ActorSigningKeyProvider.class)
                 .setUnremovable()
                 .build());
+        beans.produce(AdditionalBeanBuildItem.builder()
+                .addBeanClasses(InboxHandler.class, InboxProcessor.class, InboundActivityContext.class, InboxLog.class,
+                        InboxMetrics.class, FollowHandler.class, UndoHandler.class, AcceptRejectHandler.OnAccept.class,
+                        AcceptRejectHandler.OnReject.class, CreateUpdateHandler.OnCreate.class,
+                        CreateUpdateHandler.OnUpdate.class, CreateUpdateHandler.Keeper.class, DeleteHandler.class,
+                        ConfigDomainPolicy.class, DefaultFollowPolicy.class, DefaultRemoteObjectPolicy.class)
+                .setUnremovable()
+                .build());
         indexed.produce(new AdditionalIndexedClassesBuildItem(ActivityPubWebFingerResolver.class.getName()));
+        // the event qualifier must be in the bean archive index to be recognised
+        beans.produce(AdditionalBeanBuildItem.unremovableOf(Inbound.class));
     }
 
     /**
@@ -130,6 +160,11 @@ class ActivityPubProcessor {
         route(routes, rootPath, recorder, "following", paths.following(), USERNAME, collections, "FOLLOWING");
         route(routes, rootPath, recorder, "objects", paths.objects(), ID, objects, ObjectHandler.OBJECTS);
         route(routes, rootPath, recorder, "activities", paths.activities(), ID, objects, ObjectHandler.ACTIVITIES);
+        String inbox = InboxHandler.class.getName();
+        route(routes, rootPath, recorder, "inbox", paths.inbox(), USERNAME, inbox, InboxHandler.ACTOR);
+        LOG.debugf("ActivityPub route %s -> shared-inbox", paths.sharedInbox());
+        routes.produce(rootPath.routeBuilder().route(paths.sharedInbox())
+                .handler(recorder.handler(inbox, InboxHandler.SHARED)).build());
     }
 
     private static void route(BuildProducer<RouteBuildItem> routes, HttpRootPathBuildItem rootPath,
@@ -173,6 +208,12 @@ class ActivityPubProcessor {
         return UnremovableBeanBuildItem.beanTypes(ActorStore.class, ReactiveActorStore.class, ObjectStore.class,
                 ReactiveObjectStore.class, FollowerStore.class, ReactiveFollowerStore.class, DeliveryStore.class,
                 ReactiveDeliveryStore.class, TransactionRunner.class);
+    }
+
+    @BuildStep
+    UnremovableBeanBuildItem unremovableInboxSpis() {
+        return UnremovableBeanBuildItem.beanTypes(InboundActivityHandler.class, DomainPolicy.class, FollowPolicy.class,
+                RemoteObjectPolicy.class, ActivityPub.class, ReactiveActivityPub.class);
     }
 
     @BuildStep
