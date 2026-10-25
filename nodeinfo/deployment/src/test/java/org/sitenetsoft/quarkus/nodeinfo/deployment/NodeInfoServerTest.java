@@ -5,11 +5,6 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.not;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import java.io.InputStream;
-import java.util.Set;
 
 import jakarta.enterprise.context.ApplicationScoped;
 
@@ -19,13 +14,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.sitenetsoft.quarkus.nodeinfo.NodeInfo;
 import org.sitenetsoft.quarkus.nodeinfo.NodeInfoContributor;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.networknt.schema.JsonSchema;
-import com.networknt.schema.JsonSchemaFactory;
-import com.networknt.schema.SpecVersion;
-import com.networknt.schema.ValidationMessage;
 
 import io.quarkus.test.QuarkusUnitTest;
 import io.restassured.RestAssured;
@@ -37,7 +25,8 @@ public class NodeInfoServerTest {
 
     @RegisterExtension
     static final QuarkusUnitTest config = new QuarkusUnitTest()
-            .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class).addClasses(ActivityPubContributor.class)
+            .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class)
+                    .addClasses(ActivityPubContributor.class, NodeInfoSchemas.class)
                     .addAsResource("nodeinfo-2.0.schema.json").addAsResource("nodeinfo-2.1.schema.json"))
             .overrideConfigKey("quarkus.application.name", "demo")
             .overrideConfigKey("quarkus.application.version", "1.2.3")
@@ -85,7 +74,7 @@ public class NodeInfoServerTest {
                 .body("usage.users.total", equalTo(3))
                 .body("usage.localPosts", equalTo(7))
                 .extract().asString();
-        assertValid("nodeinfo-2.1.schema.json", body);
+        NodeInfoSchemas.assertValid("nodeinfo-2.1.schema.json", body);
     }
 
     @Test
@@ -97,7 +86,7 @@ public class NodeInfoServerTest {
                 .body("software", not(hasKey("repository")))
                 .body("software", not(hasKey("homepage")))
                 .extract().asString();
-        assertValid("nodeinfo-2.0.schema.json", body);
+        NodeInfoSchemas.assertValid("nodeinfo-2.0.schema.json", body);
     }
 
     @Test
@@ -114,16 +103,5 @@ public class NodeInfoServerTest {
         given().when().get("/nodeinfo/2.1")
                 .then().statusCode(200)
                 .body("metadata.nodeName", equalTo("Demo Node"));
-    }
-
-    private static void assertValid(String schemaResource, String body) throws Exception {
-        JsonSchema schema;
-        try (InputStream in = Thread.currentThread().getContextClassLoader().getResourceAsStream(schemaResource)) {
-            schema = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V4).getSchema(in);
-        }
-        JsonNode doc = new ObjectMapper().readTree(body);
-        Set<ValidationMessage> errors = schema.validate(doc);
-        assertTrue(errors.isEmpty(), () -> "schema violations: " + errors + " in " + body);
-        assertEquals(doc.get("version").asText(), schemaResource.contains("2.0") ? "2.0" : "2.1");
     }
 }

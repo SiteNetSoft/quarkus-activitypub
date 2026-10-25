@@ -37,6 +37,7 @@ discovery links carry the public scheme and host.
 | `quarkus.nodeinfo.software.version` | `${quarkus.application.version:0}` | Software version |
 | `quarkus.nodeinfo.software.repository` | none | Source repository URL (2.1 only) |
 | `quarkus.nodeinfo.software.homepage` | none | Homepage URL (2.1 only) |
+| `quarkus.nodeinfo.protocols` | none | Protocols to advertise, e.g. `activitypub`; NodeInfo requires at least one |
 | `quarkus.nodeinfo.open-registrations` | `false` | Advertise open self-registration |
 | `quarkus.nodeinfo.metadata."key"` | none | Free-form string metadata entries |
 | `quarkus.nodeinfo.cache-ttl` | `5m` | How long the merged NodeInfo is cached |

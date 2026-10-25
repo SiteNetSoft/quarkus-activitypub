@@ -12,6 +12,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 
+import org.jboss.logging.Logger;
+
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -34,6 +36,7 @@ public class NodeInfoDocuments {
     public static final String V2_1 = "2.1";
     public static final Set<String> VERSIONS = Set.of(V2_0, V2_1);
     private static final String KEY = "nodeinfo";
+    private static final Logger LOG = Logger.getLogger("org.sitenetsoft.quarkus.nodeinfo");
 
     private final NodeInfoProvider provider;
     private final Instance<ReactiveNodeInfoProvider> reactiveProvider;
@@ -91,7 +94,14 @@ public class NodeInfoDocuments {
         for (Step step : contributors) {
             result = result.flatMap(current -> step.apply().apply(current).map(current::merge));
         }
-        return result;
+        return result.invoke(NodeInfoDocuments::warnIfNoProtocols);
+    }
+
+    private static void warnIfNoProtocols(NodeInfo info) {
+        if (info.protocols().isEmpty()) {
+            LOG.warn("NodeInfo advertises no protocols, so its documents fail the NodeInfo schema (minItems 1): set "
+                    + "quarkus.nodeinfo.protocols or add a NodeInfoContributor that adds one");
+        }
     }
 
     private Uni<NodeInfo> blocking(Callable<NodeInfo> call) {

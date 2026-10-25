@@ -6,7 +6,7 @@ import jakarta.inject.Inject;
 import io.quarkus.arc.DefaultBean;
 
 /**
- * Default {@link NodeInfoProvider}: software, registrations and metadata from {@code quarkus.nodeinfo.*}.
+ * Default {@link NodeInfoProvider}: software, protocols, registrations and metadata from {@code quarkus.nodeinfo.*}.
  */
 @ApplicationScoped
 @DefaultBean
@@ -24,6 +24,7 @@ public class ConfigNodeInfoProvider implements NodeInfoProvider {
         NodeInfoConfig.Software s = config.software();
         NodeInfo.Builder b = NodeInfo.builder(new NodeInfo.Software(s.name(), s.version(), s.repository(), s.homepage()))
                 .withOpenRegistrations(config.openRegistrations());
+        config.protocols().ifPresent(protocols -> protocols.forEach(b::withProtocol));
         config.metadata().forEach(b::withMetadata);
         return b.build();
     }

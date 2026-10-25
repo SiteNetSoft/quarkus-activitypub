@@ -4,6 +4,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import io.quarkus.runtime.annotations.ConfigDocMapKey;
 import io.quarkus.runtime.annotations.ConfigPhase;
@@ -19,6 +20,12 @@ public interface NodeInfoConfig {
      * Server software advertised by the default provider.
      */
     Software software();
+
+    /**
+     * Protocols advertised by the default provider, e.g. {@code activitypub}. NodeInfo requires at least one; a
+     * contributor may add them instead.
+     */
+    Optional<Set<String>> protocols();
 
     /**
      * Whether this server allows open self-registration.
