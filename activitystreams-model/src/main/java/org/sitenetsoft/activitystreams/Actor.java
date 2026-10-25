@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.sitenetsoft.activitystreams.json.SingleOrList;
+import org.sitenetsoft.activitystreams.json.SingleOrScalar;
 
 /** Common actor properties (ActivityPub actor plus Mastodon extensions). */
 public abstract class Actor extends ASObject {
@@ -17,7 +18,7 @@ public abstract class Actor extends ASObject {
     private URI featured;
     private String preferredUsername;
     private Endpoints endpoints;
-    @SingleOrList
+    @SingleOrScalar
     private List<PublicKey> publicKey = new ArrayList<>();
     private Boolean manuallyApprovesFollowers;
     private Boolean discoverable;

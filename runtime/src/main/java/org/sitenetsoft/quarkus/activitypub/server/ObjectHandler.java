@@ -17,7 +17,8 @@ import io.vertx.ext.web.RoutingContext;
 /**
  * {@code GET paths.objects} and {@code paths.activities} from {@code ObjectStore}: public objects are served, a
  * {@code Tombstone} answers {@code 410} with its body, and a non-public object is served only to a request signed by an
- * actor in its audience; otherwise {@code 404}, so a private object's existence never leaks.
+ * actor in its audience (with {@code Cache-Control: private} and {@code Vary: Accept, Signature}); otherwise
+ * {@code 404}, so a private object's existence never leaks.
  */
 @ApplicationScoped
 public class ObjectHandler implements BeanHandler.VariantHandler {
@@ -65,7 +66,10 @@ public class ObjectHandler implements BeanHandler.VariantHandler {
                     ASObject object = found.get();
                     if (object instanceof Tombstone) {
                         ActivityPubRouting.json(ctx, 410, json.write(object));
-                    } else if (object.isPublic() || signer.filter(object.audienceUris()::contains).isPresent()) {
+                    } else if (object.isPublic()) {
+                        ActivityPubRouting.json(ctx, 200, json.write(object));
+                    } else if (signer.filter(object.audienceUris()::contains).isPresent()) {
+                        ActivityPubRouting.privateResponse(ctx);
                         ActivityPubRouting.json(ctx, 200, json.write(object));
                     } else {
                         notVisible.run();

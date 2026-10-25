@@ -44,17 +44,36 @@ public final class ActivityPubRouting {
         return false;
     }
 
-    /** Ends the response with an ActivityPub JSON body, {@code Content-Type} and {@code Vary: Accept}. */
+    /**
+     * Ends the response with an ActivityPub JSON body, {@code Content-Type} and {@code Vary: Accept} (or the wider
+     * {@code Vary} of a {@linkplain #privateResponse private} response).
+     */
     public static void json(RoutingContext ctx, int status, byte[] body) {
+        vary(ctx);
         ctx.response().setStatusCode(status)
                 .putHeader("Content-Type", CONTENT_TYPE)
-                .putHeader("Vary", "Accept")
                 .end(Buffer.buffer(body));
     }
 
-    /** Ends the response with {@code status}, {@code Vary: Accept} and no body. */
+    /**
+     * Marks the response as depending on the request's signature: {@code Cache-Control: private} and
+     * {@code Vary: Accept, Signature}, so a shared cache never replays it to another caller.
+     */
+    static void privateResponse(RoutingContext ctx) {
+        ctx.response().putHeader("Cache-Control", "private").putHeader("Vary", "Accept, Signature");
+    }
+
+    /** {@code Vary: Accept} unless {@link #privateResponse} already set a wider one. */
+    private static void vary(RoutingContext ctx) {
+        if (!ctx.response().headers().contains("Vary")) {
+            ctx.response().putHeader("Vary", "Accept");
+        }
+    }
+
+    /** Ends the response with {@code status}, {@code Vary} and no body. */
     static void status(RoutingContext ctx, int status) {
-        ctx.response().setStatusCode(status).putHeader("Vary", "Accept").end();
+        vary(ctx);
+        ctx.response().setStatusCode(status).end();
     }
 
     /** Answers {@code 405} for anything but GET and HEAD; returns whether the request may continue. */

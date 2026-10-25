@@ -19,7 +19,8 @@ public class ActorRouteAuthorizedFetchTest {
 
     @RegisterExtension
     static final QuarkusUnitTest config = new QuarkusUnitTest()
-            .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class).addClass(TestActors.class))
+            .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class).addClasses(TestActors.class,
+                    TestSignatures.class, TestSignatures.RemoteKeys.class))
             .overrideConfigKey("quarkus.activitypub.base-url", TestActors.BASE)
             .overrideConfigKey("quarkus.activitypub.authorized-fetch", "true");
 
@@ -45,6 +46,22 @@ public class ActorRouteAuthorizedFetchTest {
     @Test
     void instanceActorStaysReadable() {
         given().accept(TestActors.AP).when().get("/users/instance")
-                .then().statusCode(200).body("type", equalTo("Application"));
+                .then().statusCode(200).body("type", equalTo("Application"))
+                .header("Cache-Control", "max-age=300")
+                .header("Vary", "Accept");
+    }
+
+    /** A signed fetch is answered, but the answer depends on the signer, so it must stay out of shared caches. */
+    @Test
+    void signedFetchIsPrivate() {
+        TestSignatures.signedGet(TestSignatures.CAROL_KEY, "/users/alice").when().get("/users/alice")
+                .then().statusCode(200)
+                .body("id", equalTo(TestActors.ALICE))
+                .header("Cache-Control", "private")
+                .header("Vary", "Accept, Signature");
+        TestSignatures.signedGet(TestSignatures.CAROL_KEY, "/users/alice/outbox").when().get("/users/alice/outbox")
+                .then().statusCode(200)
+                .header("Cache-Control", "private")
+                .header("Vary", "Accept, Signature");
     }
 }

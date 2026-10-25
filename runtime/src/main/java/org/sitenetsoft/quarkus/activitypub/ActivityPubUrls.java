@@ -1,6 +1,7 @@
 package org.sitenetsoft.quarkus.activitypub;
 
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -104,6 +105,23 @@ public class ActivityPubUrls {
     /** The actor's main key id: the actor URL with fragment {@code #main-key}. */
     public URI keyId(String username) {
         return URI.create(actor(username) + "#main-key");
+    }
+
+    /**
+     * The local id a request path stands for: {@code base-url} (its path kept, trailing slash dropped) followed by
+     * {@code rawPath}, so {@code https://h/social} and {@code /posts/1} give {@code https://h/social/posts/1}. Empty
+     * unless {@code rawPath} starts with exactly one {@code /} (a {@code //host/...} path would otherwise name another
+     * origin) and the result is a valid URI.
+     */
+    public Optional<URI> idForPath(String rawPath) {
+        if (rawPath == null || !rawPath.startsWith("/") || rawPath.startsWith("//")) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new URI(base + rawPath));
+        } catch (URISyntaxException e) {
+            return Optional.empty();
+        }
     }
 
     /** The username of a local actor URL, empty when the URL is not a local actor URL. */

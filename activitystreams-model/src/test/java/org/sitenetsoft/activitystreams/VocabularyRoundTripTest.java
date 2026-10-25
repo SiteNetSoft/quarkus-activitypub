@@ -151,6 +151,35 @@ class VocabularyRoundTripTest {
     }
 
     @Test
+    void singleElementListsWriteAsScalar() throws Exception {
+        Note note = new Note();
+        note.id(uri("https://a/n/1"));
+        note.inReplyTo(ObjectOrLink.of("https://b/n/9")).attributedTo(ObjectOrLink.of("https://a/u"))
+                .url(ObjectOrLink.of("https://a/@u/1")).to(ObjectOrLink.of("https://b/u"))
+                .tag(ObjectOrLink.of("https://a/tags/x"));
+        JsonNode written = mapper.readTree(mapper.writeValueAsString(note));
+        assertEquals("https://b/n/9", written.get("inReplyTo").asText());
+        assertEquals("https://a/u", written.get("attributedTo").asText());
+        assertEquals("https://a/@u/1", written.get("url").asText());
+        assertTrue(written.get("to").isArray(), written.toString());
+        assertEquals(1, written.get("to").size());
+        assertTrue(written.get("tag").isArray(), written.toString());
+
+        Person p = new Person();
+        p.publicKey(new PublicKey().owner(uri("https://a/u")).publicKeyPem("PEM"));
+        Image icon = new Image();
+        icon.url(ObjectOrLink.of("https://a/i.png"));
+        p.icon(ObjectOrLink.of(icon));
+        JsonNode actor = mapper.readTree(mapper.writeValueAsString(p));
+        assertTrue(actor.get("publicKey").isObject(), actor.toString());
+        assertTrue(actor.get("icon").isObject(), actor.toString());
+        assertEquals("https://a/i.png", actor.get("icon").get("url").asText());
+
+        note.url(ObjectOrLink.of("https://a/1"), ObjectOrLink.of("https://a/2"));
+        assertTrue(mapper.readTree(mapper.writeValueAsString(note)).get("url").isArray());
+    }
+
+    @Test
     void publicKeyArrayAccepted() throws Exception {
         Person p = (Person) mapper.readValue("""
                 {"type":"Person","id":"https://a/u","publicKey":[{"id":"https://a/u#k","owner":"https://a/u",

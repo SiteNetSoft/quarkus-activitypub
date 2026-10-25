@@ -1,7 +1,6 @@
 package org.sitenetsoft.quarkus.activitypub.actor;
 
 import java.net.URI;
-import java.util.Set;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -23,12 +22,6 @@ import org.sitenetsoft.quarkus.activitypub.ActivityPubUrls;
  */
 @ApplicationScoped
 public class ActorDocuments {
-
-    /**
-     * Actor properties written as a single value when they hold one (as Mastodon writes them), for
-     * {@code ActivityPubJson.write(object, singleValued)}.
-     */
-    public static final Set<String> SINGLE_VALUED = Set.of("publicKey", "url", "icon", "image");
 
     @Inject
     ActivityPubUrls urls;

@@ -2,14 +2,9 @@ package org.sitenetsoft.quarkus.activitypub.deployment;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.nullValue;
 
 import java.net.URI;
-import java.security.PrivateKey;
-import java.time.Instant;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
@@ -24,35 +19,19 @@ import org.sitenetsoft.activitystreams.Audience;
 import org.sitenetsoft.activitystreams.Create;
 import org.sitenetsoft.activitystreams.Note;
 import org.sitenetsoft.activitystreams.ObjectOrLink;
-import org.sitenetsoft.httpsignatures.Algorithm;
-import org.sitenetsoft.httpsignatures.Headers;
-import org.sitenetsoft.httpsignatures.HttpMessageView;
-import org.sitenetsoft.httpsignatures.HttpSigner;
-import org.sitenetsoft.httpsignatures.KeyResolver;
-import org.sitenetsoft.httpsignatures.SignatureSpec;
-import org.sitenetsoft.httpsignatures.SigningKey;
-import org.sitenetsoft.httpsignatures.VerificationKey;
-import org.sitenetsoft.quarkus.activitypub.actor.ActorKeyPair;
-import org.sitenetsoft.quarkus.activitypub.actor.ActorKeys;
 import org.sitenetsoft.quarkus.activitypub.server.ActivityPubContentNegotiation;
 import org.sitenetsoft.quarkus.activitypub.store.Stores;
 
 import io.quarkus.test.QuarkusUnitTest;
-import io.restassured.RestAssured;
-import io.restassured.specification.RequestSpecification;
 import io.vertx.ext.web.Router;
 
 public class ObjectRouteTest {
 
-    static final String CAROL = "https://remote.example/users/carol";
-    static final String CAROL_KEY = CAROL + "#main-key";
-    static final String DAVE_KEY = "https://remote.example/users/dave#main-key";
-    static final ActorKeyPair REMOTE_KEYS = ActorKeys.generateRsa2048();
-
     @RegisterExtension
     static final QuarkusUnitTest config = new QuarkusUnitTest()
             .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class)
-                    .addClasses(TestActors.class, CustomRoutes.class, RemoteKeys.class))
+                    .addClasses(TestActors.class, TestSignatures.class, TestSignatures.RemoteKeys.class,
+                            CustomRoutes.class))
             .overrideConfigKey("quarkus.activitypub.base-url", TestActors.BASE);
 
     /** An app route with its own ids, fronted by the negotiation helper. */
@@ -65,19 +44,9 @@ public class ObjectRouteTest {
         void register(@Observes Router router) {
             router.get("/custom/:n").handler(negotiation)
                     .handler(ctx -> ctx.response().putHeader("Content-Type", "text/html").end("<p>html</p>"));
-        }
-    }
-
-    /** Resolves the remote test keys (carol and dave share one key pair). */
-    @ApplicationScoped
-    public static class RemoteKeys implements KeyResolver {
-        @Override
-        public Optional<VerificationKey> resolve(String keyId) {
-            if (CAROL_KEY.equals(keyId) || DAVE_KEY.equals(keyId)) {
-                return Optional.of(new VerificationKey(keyId, Optional.of(Algorithm.RSA_SHA256),
-                        ActorKeys.publicKey(REMOTE_KEYS)));
-            }
-            return Optional.empty();
+            // a catch-all style mount that also sees "//host/..." request paths
+            router.getWithRegex(".*other\\.example/x").handler(negotiation)
+                    .handler(ctx -> ctx.response().putHeader("Content-Type", "text/html").end("<p>app</p>"));
         }
     }
 
@@ -96,20 +65,6 @@ public class ObjectRouteTest {
         return note;
     }
 
-    /** A GET signed with Cavage {@code rsa-sha256} by {@code keyId}. */
-    static RequestSpecification signedGet(String keyId, String path) {
-        URI uri = URI.create("http://localhost:" + RestAssured.port + path);
-        String host = uri.getHost() + ":" + uri.getPort();
-        HttpMessageView msg = HttpMessageView.of("GET", uri, Headers.of(Map.of("Host", List.of(host))), null);
-        PrivateKey key = ActorKeys.privateKey(REMOTE_KEYS);
-        var signed = new HttpSigner().sign(msg, SignatureSpec.cavage(keyId, Algorithm.RSA_SHA256, Instant.now(), false),
-                new SigningKey(keyId, Algorithm.RSA_SHA256, key));
-        Map<String, String> headers = new LinkedHashMap<>(signed.headers());
-        RequestSpecification spec = given().accept(TestActors.AP).header("Host", host);
-        headers.forEach(spec::header);
-        return spec;
-    }
-
     @Test
     void publicObjectServed() {
         stores.objects().putLocal(note(TestActors.BASE + "/objects/p1", Audience.PUBLIC), true);
@@ -119,7 +74,8 @@ public class ObjectRouteTest {
                 .header("Vary", "Accept")
                 .body("id", equalTo(TestActors.BASE + "/objects/p1"))
                 .body("type", equalTo("Note"))
-                .body("content", equalTo("hello"));
+                .body("content", equalTo("hello"))
+                .header("Cache-Control", nullValue());
 
         Create create = new Create();
         create.actor(ObjectOrLink.of(TestActors.ALICE)).id(URI.create(TestActors.BASE + "/activities/a1"));
@@ -147,17 +103,20 @@ public class ObjectRouteTest {
 
     @Test
     void privateObjectUnsignedIs404() {
-        stores.objects().putLocal(note(TestActors.BASE + "/objects/secret", URI.create(CAROL)), false);
+        stores.objects().putLocal(note(TestActors.BASE + "/objects/secret", URI.create(TestSignatures.CAROL)), false);
         given().accept(TestActors.AP).when().get("/objects/secret").then().statusCode(404);
     }
 
     @Test
     void privateObjectSignedByAudienceIs200() {
-        stores.objects().putLocal(note(TestActors.BASE + "/objects/dm", URI.create(CAROL)), false);
-        signedGet(CAROL_KEY, "/objects/dm").when().get("/objects/dm")
-                .then().statusCode(200).body("id", equalTo(TestActors.BASE + "/objects/dm"));
+        stores.objects().putLocal(note(TestActors.BASE + "/objects/dm", URI.create(TestSignatures.CAROL)), false);
+        TestSignatures.signedGet(TestSignatures.CAROL_KEY, "/objects/dm").when().get("/objects/dm")
+                .then().statusCode(200).body("id", equalTo(TestActors.BASE + "/objects/dm"))
+                // varies by signer: never stored by a shared cache
+                .header("Cache-Control", "private")
+                .header("Vary", "Accept, Signature");
         // a valid signature from an actor outside the audience does not reveal it
-        signedGet(DAVE_KEY, "/objects/dm").when().get("/objects/dm").then().statusCode(404);
+        TestSignatures.signedGet(TestSignatures.DAVE_KEY, "/objects/dm").when().get("/objects/dm").then().statusCode(404);
     }
 
     @Test
@@ -177,5 +136,14 @@ public class ObjectRouteTest {
         // no stored object: the app's own route answers
         given().accept(TestActors.AP).when().get("/custom/2")
                 .then().statusCode(200).body(equalTo("<p>html</p>"));
+    }
+
+    @Test
+    void doubleSlashPathIsNotLookedUp() {
+        // a cached public remote object must not be served under this origin through "//other.example/x"
+        Note remote = note("https://other.example/x", Audience.PUBLIC);
+        stores.objects().putRemote(remote, URI.create("https://other.example/inbox"));
+        given().urlEncodingEnabled(false).accept(TestActors.AP).when().get("//other.example/x")
+                .then().statusCode(200).body(equalTo("<p>app</p>"));
     }
 }

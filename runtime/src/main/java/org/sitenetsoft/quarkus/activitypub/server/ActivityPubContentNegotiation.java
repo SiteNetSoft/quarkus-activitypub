@@ -1,6 +1,7 @@
 package org.sitenetsoft.quarkus.activitypub.server;
 
 import java.net.URI;
+import java.util.Optional;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -23,9 +24,10 @@ import io.vertx.ext.web.RoutingContext;
  * rules of the object route (public, {@code 410} for a tombstone, audience-signed for private objects). Any other
  * request, or one with no visible stored object, goes to the next handler.
  * <p>
- * The request URL is {@code quarkus.activitypub.base-url} resolved against the request path
- * ({@code base-url.resolve(normalizedPath)}), not the {@code Host} header, so a server behind a proxy or on another
- * port still finds ids minted under {@code base-url}. The query string is not part of the id.
+ * The id looked up is {@code quarkus.activitypub.base-url} followed by the raw request path
+ * ({@code ActivityPubUrls.idForPath}; a base path such as {@code /social} is kept), not the {@code Host} header, so a
+ * server behind a proxy or on another port still finds ids minted under {@code base-url}. The query string is not part
+ * of the id, and a path starting with {@code //} is passed on without a lookup.
  */
 @ApplicationScoped
 public class ActivityPubContentNegotiation implements Handler<RoutingContext> {
@@ -43,7 +45,11 @@ public class ActivityPubContentNegotiation implements Handler<RoutingContext> {
             ctx.next();
             return;
         }
-        URI id = urls.baseUrl().resolve(ctx.normalizedPath());
-        objects.serve(ctx, id, ctx::next);
+        Optional<URI> id = urls.idForPath(ctx.request().path());
+        if (id.isEmpty()) {
+            ctx.next();
+            return;
+        }
+        objects.serve(ctx, id.get(), ctx::next);
     }
 }

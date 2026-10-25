@@ -63,8 +63,7 @@ public class ActorHandler implements Handler<RoutingContext> {
             }
             LocalActor actor = found.get();
             return stores.reactiveActors().keyPair(actor.id())
-                    .map(keys -> Optional.of(json.write(documents.toDocument(actor, keys.orElse(null)),
-                            ActorDocuments.SINGLE_VALUED)));
+                    .map(keys -> Optional.of(json.write(documents.toDocument(actor, keys.orElse(null)))));
         });
     }
 
@@ -81,7 +80,11 @@ public class ActorHandler implements Handler<RoutingContext> {
 
     private void write(RoutingContext ctx, byte[] body) {
         String etag = etag(body);
-        ctx.response().putHeader("ETag", etag).putHeader("Cache-Control", config.cacheControl().actor());
+        ctx.response().putHeader("ETag", etag);
+        if (!ctx.response().headers().contains("Cache-Control")) {
+            // authorized fetch already made it private
+            ctx.response().putHeader("Cache-Control", config.cacheControl().actor());
+        }
         if (matches(ctx.request().getHeader("If-None-Match"), etag)) {
             ActivityPubRouting.status(ctx, 304);
             return;

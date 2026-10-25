@@ -22,11 +22,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 import org.sitenetsoft.activitystreams.json.SingleOrList;
+import org.sitenetsoft.activitystreams.json.SingleOrScalar;
 
 /**
  * Base Activity Streams object. Tolerant on input (single value or array, bare URI or embedded object, unknown
  * properties kept in {@link #extra()}), canonical on output (nulls and empty values omitted, single {@code type}
- * written as a bare string).
+ * written as a bare string, and a one-element {@code url}, {@code attributedTo}, {@code inReplyTo}, {@code icon} or
+ * {@code image} written as that element; audience properties, {@code tag} and {@code attachment} stay arrays).
  * <p>
  * Jackson binds fields directly (fluent accessors are not bean getters); subclasses inherit that visibility.
  * List-valued properties are never {@code null}: the accessor returns the live, mutable list.
@@ -52,9 +54,9 @@ public class ASObject {
     private String mediaType;
     private Instant published;
     private Instant updated;
-    @SingleOrList
+    @SingleOrScalar
     private List<ObjectOrLink> url = new ArrayList<>();
-    @SingleOrList
+    @SingleOrScalar
     private List<ObjectOrLink> attributedTo = new ArrayList<>();
     @SingleOrList
     private List<ObjectOrLink> to = new ArrayList<>();
@@ -66,15 +68,15 @@ public class ASObject {
     private List<ObjectOrLink> bcc = new ArrayList<>();
     @SingleOrList
     private List<ObjectOrLink> audience = new ArrayList<>();
-    @SingleOrList
+    @SingleOrScalar
     private List<ObjectOrLink> inReplyTo = new ArrayList<>();
     @SingleOrList
     private List<ObjectOrLink> tag = new ArrayList<>();
     @SingleOrList
     private List<ObjectOrLink> attachment = new ArrayList<>();
-    @SingleOrList
+    @SingleOrScalar
     private List<ObjectOrLink> icon = new ArrayList<>();
-    @SingleOrList
+    @SingleOrScalar
     private List<ObjectOrLink> image = new ArrayList<>();
     private ObjectOrLink replies;
     private ObjectOrLink likes;

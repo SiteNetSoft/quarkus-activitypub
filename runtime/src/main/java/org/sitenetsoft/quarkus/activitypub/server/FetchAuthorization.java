@@ -25,13 +25,19 @@ public class FetchAuthorization {
 
     /**
      * Verifies the request's signature when it has one, then calls {@code next} with the signer. When
-     * {@code authorized-fetch} is on, {@code exempt} is false and no signature verified, answers {@code 401} instead.
+     * {@code authorized-fetch} is on, {@code exempt} is false and no signature verified, answers {@code 401} instead;
+     * when it is on and the request passes, the response is made {@linkplain ActivityPubRouting#privateResponse
+     * private}.
      */
     void authorize(RoutingContext ctx, boolean exempt, Consumer<Optional<URI>> next) {
         ActivityPubRouting.respond(ctx, signers.verifiedActor(ctx), signer -> {
             if (signer.isEmpty() && config.authorizedFetch() && !exempt) {
                 ActivityPubRouting.status(ctx, 401);
                 return;
+            }
+            if (config.authorizedFetch() && !exempt) {
+                // the answer depends on who signed: keep it out of shared caches
+                ActivityPubRouting.privateResponse(ctx);
             }
             next.accept(signer);
         });
