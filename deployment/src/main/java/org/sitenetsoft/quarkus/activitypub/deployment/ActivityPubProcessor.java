@@ -10,6 +10,7 @@ import org.jboss.logging.Logger;
 import org.sitenetsoft.activitystreams.ASLink;
 import org.sitenetsoft.activitystreams.ASObject;
 import org.sitenetsoft.activitystreams.ASTypes;
+import org.sitenetsoft.activitystreams.Actor;
 import org.sitenetsoft.activitystreams.Endpoints;
 import org.sitenetsoft.activitystreams.ObjectOrLink;
 import org.sitenetsoft.activitystreams.PublicKey;
@@ -273,7 +274,8 @@ class ActivityPubProcessor {
     @BuildStep
     ReflectiveClassBuildItem jacksonReflection() {
         Set<Class<?>> classes = new LinkedHashSet<>(ASTypes.defaults().classes());
-        classes.addAll(List.of(ASObject.class, ASLink.class, ObjectOrLink.class, ObjectOrLink.Ref.class,
+        // Actor: abstract superclass of the actor types, not in the registry; its fields hold inbox and publicKey
+        classes.addAll(List.of(ASObject.class, ASLink.class, Actor.class, ObjectOrLink.class, ObjectOrLink.Ref.class,
                 ObjectOrLink.Embedded.class, Endpoints.class, PublicKey.class, LocalActor.class, Delivery.class,
                 HostHealth.class, Page.class, FollowRelation.class, InboxLog.InboxEntry.class));
         List<Class<?>> json = List.of(ASObjectDeserializer.class, FirstObjectOrLinkDeserializer.class,

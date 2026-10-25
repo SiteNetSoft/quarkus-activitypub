@@ -43,7 +43,7 @@ public class NativeReflectionTest {
         for (Class<?> type : ASTypes.defaults().classes()) {
             assertTrue(registered.contains(type.getName()), type.getName());
         }
-        for (Class<?> type : List.of(ObjectOrLink.class, ObjectOrLink.Ref.class, ObjectOrLink.Embedded.class,
+        for (Class<?> type : List.of(org.sitenetsoft.activitystreams.Actor.class, ObjectOrLink.class, ObjectOrLink.Ref.class, ObjectOrLink.Embedded.class,
                 ObjectOrLinkDeserializer.class, Delivery.class,
                 org.sitenetsoft.activitystreams.Endpoints.class, org.sitenetsoft.activitystreams.PublicKey.class)) {
             assertTrue(registered.contains(type.getName()), type.getName());
