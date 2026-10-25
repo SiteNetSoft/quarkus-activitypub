@@ -28,7 +28,9 @@ import org.sitenetsoft.quarkus.activitypub.store.Stores;
 
 /**
  * Turns an activity's audience ({@code to}, {@code cc}, {@code bto}, {@code bcc}, {@code audience}) into one
- * {@link Delivery} per inbox:
+ * {@link Delivery} per inbox, in two steps so no network I/O happens inside a store transaction:
+ * {@link #prefetch} (network, before the transaction) looks up the remote recipients, {@link #resolve} (store only,
+ * inside it) builds the deliveries.
  * <ul>
  * <li>the public collection: nobody to deliver to;</li>
  * <li>the actor's own followers collection: the inboxes of its accepted followers;</li>
@@ -39,13 +41,25 @@ import org.sitenetsoft.quarkus.activitypub.store.Stores;
  * the error, so the application can see who was not reached.</li>
  * </ul>
  * Inboxes are deduplicated. The body is the activity without {@code bto}/{@code bcc} (also removed from an embedded
- * object), serialised once and shared by every delivery. Blocking (remote fetches).
+ * object), serialised once and shared by every delivery.
  */
 @ApplicationScoped
 public class RecipientResolver {
 
     private static final Logger LOG = Logger.getLogger("org.sitenetsoft.quarkus.activitypub");
     private static final ObjectOrLink[] NONE = {};
+
+    /**
+     * What the remote recipients of an activity resolved to: an inbox, or the reason they cannot be reached. Remote
+     * recipients in neither map are skipped (not actors).
+     */
+    public record RemoteRecipients(Map<URI, URI> inboxes, Map<URI, String> failures) {
+
+        public RemoteRecipients {
+            inboxes = Map.copyOf(inboxes);
+            failures = Map.copyOf(failures);
+        }
+    }
 
     @Inject
     ActivityPubUrls urls;
@@ -62,7 +76,39 @@ public class RecipientResolver {
     @Inject
     Clock clock;
 
-    public List<Delivery> resolve(LocalActor actor, Activity activity) {
+    /**
+     * Looks up the remote recipients of {@code activity} (blocking: up to {@code fetch.timeout} per recipient not yet
+     * cached). Call it before opening the store transaction.
+     */
+    public RemoteRecipients prefetch(Activity activity) {
+        Map<URI, URI> inboxes = new LinkedHashMap<>();
+        Map<URI, String> failures = new LinkedHashMap<>();
+        for (URI recipient : activity.audienceUris()) {
+            if (Audience.isPublic(recipient) || urls.isLocal(recipient)) {
+                continue;
+            }
+            ASObject document;
+            try {
+                document = client.fetch(recipient);
+            } catch (RuntimeException e) {
+                LOG.debugf("Activity %s: recipient %s not resolved: %s", activity.id(), recipient, e.getMessage());
+                failures.put(recipient, "Recipient not resolved: " + e.getMessage());
+                continue;
+            }
+            if (!(document instanceof Actor remote)) {
+                LOG.debugf("Activity %s: recipient %s is a %s, not an actor; skipped", activity.id(), recipient,
+                        document.primaryType());
+            } else if (remote.deliveryInbox() == null) {
+                failures.put(recipient, "Recipient has no inbox");
+            } else {
+                inboxes.put(recipient, remote.deliveryInbox());
+            }
+        }
+        return new RemoteRecipients(inboxes, failures);
+    }
+
+    /** The deliveries of {@code activity}, from the store and {@code remote} only (no network). */
+    public List<Delivery> resolve(LocalActor actor, Activity activity, RemoteRecipients remote) {
         byte[] body = json.write(withoutBlindAudience(activity));
         String keyId = urls.keyId(actor.username()).toString();
         URI followers = urls.followers(actor.username());
@@ -77,31 +123,15 @@ public class RecipientResolver {
                 for (URI inbox : stores.followers().followerInboxes(actor.id())) {
                     byInbox.computeIfAbsent(inbox, i -> Delivery.create(i, activity.id(), body, keyId, now));
                 }
-                continue;
-            }
-            if (urls.isLocal(recipient)) {
+            } else if (urls.isLocal(recipient)) {
                 LOG.debugf("Activity %s: local recipient %s skipped", activity.id(), recipient);
-                continue;
+            } else if (remote.inboxes().containsKey(recipient)) {
+                byInbox.computeIfAbsent(remote.inboxes().get(recipient),
+                        i -> Delivery.create(i, activity.id(), body, keyId, now));
+            } else if (remote.failures().containsKey(recipient)) {
+                failed.add(Delivery.create(recipient, activity.id(), body, keyId, now).withState(DeliveryState.FAILED)
+                        .withLastError(Optional.of(remote.failures().get(recipient))));
             }
-            ASObject document;
-            try {
-                document = client.fetch(recipient);
-            } catch (RuntimeException e) {
-                LOG.debugf("Activity %s: recipient %s not resolved: %s", activity.id(), recipient, e.getMessage());
-                failed.add(failedDelivery(recipient, activity, body, keyId, now, "Recipient not resolved: " + e.getMessage()));
-                continue;
-            }
-            if (!(document instanceof Actor remote)) {
-                LOG.debugf("Activity %s: recipient %s is a %s, not an actor; skipped", activity.id(), recipient,
-                        document.primaryType());
-                continue;
-            }
-            URI inbox = remote.deliveryInbox();
-            if (inbox == null) {
-                failed.add(failedDelivery(recipient, activity, body, keyId, now, "Recipient has no inbox"));
-                continue;
-            }
-            byInbox.computeIfAbsent(inbox, i -> Delivery.create(i, activity.id(), body, keyId, now));
         }
         List<Delivery> out = new ArrayList<>(byInbox.values());
         out.addAll(failed);
@@ -114,12 +144,5 @@ public class RecipientResolver {
         copy.bto(NONE).bcc(NONE);
         copy.embeddedObject().ifPresent(o -> o.bto(NONE).bcc(NONE));
         return copy;
-    }
-
-    /** The recipient URL stands in for the unknown inbox. */
-    private static Delivery failedDelivery(URI recipient, Activity activity, byte[] body, String keyId, Instant now,
-            String error) {
-        return Delivery.create(recipient, activity.id(), body, keyId, now).withState(DeliveryState.FAILED)
-                .withLastError(Optional.of(error));
     }
 }

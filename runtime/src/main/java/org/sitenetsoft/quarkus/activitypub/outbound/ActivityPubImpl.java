@@ -29,6 +29,7 @@ import org.sitenetsoft.quarkus.activitypub.ActivityPubUrls;
 import org.sitenetsoft.quarkus.activitypub.Ids;
 import org.sitenetsoft.quarkus.activitypub.actor.LocalActor;
 import org.sitenetsoft.quarkus.activitypub.client.ActivityPubClient;
+import org.sitenetsoft.quarkus.activitypub.outbound.RecipientResolver.RemoteRecipients;
 import org.sitenetsoft.quarkus.activitypub.store.FollowRelation;
 import org.sitenetsoft.quarkus.activitypub.store.FollowState;
 import org.sitenetsoft.quarkus.activitypub.store.Stores;
@@ -37,12 +38,14 @@ import org.sitenetsoft.quarkus.activitypub.store.TransactionRunner;
 /**
  * The outbound API (blocking). {@link ReactiveActivityPubImpl} runs it on a worker thread.
  * <p>
- * {@link #publish} works in one store transaction (joining the caller's): it assigns missing ids
+ * {@link #publish} first looks up the remote recipients (network, outside any transaction it opens), then works in
+ * one store transaction (joining the caller's): it assigns missing ids
  * ({@code activities/{ulid}}, {@code objects/{ulid}}), the actor and {@code published}; stores the activity and the
  * object it creates or updates (both without {@code bto}/{@code bcc}, which are never served); resolves the recipients
  * and hands the deliveries to the {@link DeliveryExecutor}. The caller gets the activity back with {@code bto}/
- * {@code bcc} intact. Recipient resolution may fetch remote actors, so it can take up to {@code fetch.timeout} per
- * unknown recipient.
+ * {@code bcc} intact. Looking up the recipients can take up to {@code fetch.timeout} per remote recipient not yet
+ * cached; the methods that also change other stores (follow, undo, delete, answers) do that lookup before their own
+ * transaction too.
  */
 @ApplicationScoped
 public class ActivityPubImpl implements ActivityPub {
@@ -72,10 +75,12 @@ public class ActivityPubImpl implements ActivityPub {
 
     @Override
     public Activity publish(LocalActor actor, Activity activity) {
-        return transactions.inTransaction(() -> doPublish(actor, activity));
+        RemoteRecipients remote = recipients.prefetch(activity);
+        return transactions.inTransaction(() -> doPublish(actor, activity, remote));
     }
 
-    private Activity doPublish(LocalActor actor, Activity activity) {
+    /** The store part of {@link #publish}; runs inside the transaction, {@code remote} already looked up. */
+    private Activity doPublish(LocalActor actor, Activity activity, RemoteRecipients remote) {
         Instant now = clock.instant();
         if (activity.id() == null) {
             activity.id(urls.activity(Ids.ulid()));
@@ -107,7 +112,7 @@ public class ActivityPubImpl implements ActivityPub {
             stores.objects().putLocal(stored.embeddedObject().orElseThrow(), isPublic);
         }
         stores.objects().putLocal(stored, isPublic);
-        executor.submit(recipients.resolve(actor, activity));
+        executor.submit(recipients.resolve(actor, activity, remote));
         LOG.debugf("%s %s published by %s", activity.primaryType(), activity.id(), actor.id());
         return activity;
     }
@@ -143,29 +148,41 @@ public class ActivityPubImpl implements ActivityPub {
         to.audience(from.audience().toArray(ObjectOrLink[]::new));
     }
 
-    /** The object becomes a {@code Tombstone}; the {@code Delete} goes to the public and the actor's followers. */
+    /**
+     * The object becomes a {@code Tombstone}; the {@code Delete} goes to the public and the actor's followers.
+     *
+     * @throws IllegalArgumentException unless {@code objectId} is a stored local object attributed to {@code actor}
+     */
     @Override
     public Activity delete(LocalActor actor, URI objectId) {
+        Tombstone tombstone = new Tombstone();
+        tombstone.id(objectId);
+        Delete delete = new Delete();
+        delete.actor(ObjectOrLink.of(actor.id())).object(ObjectOrLink.of(tombstone));
+        delete.to(ObjectOrLink.of(Audience.PUBLIC));
+        delete.cc(ObjectOrLink.of(urls.followers(actor.username())));
+        RemoteRecipients remote = recipients.prefetch(delete);
         return transactions.inTransaction(() -> {
+            boolean own = urls.isLocal(objectId) && stores.objects().find(objectId)
+                    .filter(o -> o.attributedTo().stream().anyMatch(a -> a.uri().filter(actor.id()::equals).isPresent()))
+                    .isPresent();
+            if (!own) {
+                throw new IllegalArgumentException(objectId + " is not a local object attributed to " + actor.id());
+            }
             stores.objects().tombstone(objectId);
-            Tombstone tombstone = new Tombstone();
-            tombstone.id(objectId);
-            Delete delete = new Delete();
-            delete.actor(ObjectOrLink.of(actor.id())).object(ObjectOrLink.of(tombstone));
-            delete.to(ObjectOrLink.of(Audience.PUBLIC));
-            delete.cc(ObjectOrLink.of(urls.followers(actor.username())));
-            return publish(actor, delete);
+            return doPublish(actor, delete, remote);
         });
     }
 
     /** Records the follow as {@code PENDING} until the remote actor accepts it. */
     @Override
     public Activity follow(LocalActor actor, URI remoteActor) {
+        Follow follow = new Follow();
+        follow.actor(ObjectOrLink.of(actor.id())).object(ObjectOrLink.of(remoteActor));
+        follow.to(ObjectOrLink.of(remoteActor));
+        RemoteRecipients remote = recipients.prefetch(follow);
         return transactions.inTransaction(() -> {
-            Follow follow = new Follow();
-            follow.actor(ObjectOrLink.of(actor.id())).object(ObjectOrLink.of(remoteActor));
-            follow.to(ObjectOrLink.of(remoteActor));
-            publish(actor, follow);
+            doPublish(actor, follow, remote);
             stores.followers().addFollowing(actor.id(), remoteActor, FollowState.PENDING, follow.id());
             return follow;
         });
@@ -178,14 +195,15 @@ public class ActivityPubImpl implements ActivityPub {
      */
     @Override
     public Activity undoFollow(LocalActor actor, URI remoteActor) {
+        Undo undo = new Undo();
+        undo.actor(ObjectOrLink.of(actor.id()));
+        undo.to(ObjectOrLink.of(remoteActor));
+        RemoteRecipients remote = recipients.prefetch(undo);
         return transactions.inTransaction(() -> {
             FollowRelation relation = stores.followers().followingRelation(actor.id(), remoteActor)
                     .orElseThrow(() -> new IllegalStateException(actor.id() + " does not follow " + remoteActor));
-            Follow follow = storedFollow(relation.followActivityId(), actor.id(), remoteActor);
-            Undo undo = new Undo();
-            undo.actor(ObjectOrLink.of(actor.id())).object(ObjectOrLink.of(follow));
-            undo.to(ObjectOrLink.of(remoteActor));
-            publish(actor, undo);
+            undo.object(ObjectOrLink.of(storedFollow(relation.followActivityId(), actor.id(), remoteActor)));
+            doPublish(actor, undo, remote);
             stores.followers().removeFollowing(actor.id(), remoteActor);
             return undo;
         });
@@ -207,6 +225,9 @@ public class ActivityPubImpl implements ActivityPub {
      * @throws IllegalStateException when {@code follower} never asked to follow {@code actor}
      */
     private void answerFollow(LocalActor actor, URI follower, Activity answer, FollowState state) {
+        answer.actor(ObjectOrLink.of(actor.id()));
+        answer.to(ObjectOrLink.of(follower));
+        RemoteRecipients remote = recipients.prefetch(answer);
         transactions.inTransaction(() -> {
             FollowRelation relation = stores.followers().follower(actor.id(), follower)
                     .orElseThrow(() -> new IllegalStateException(follower + " has not asked to follow " + actor.id()));
@@ -216,9 +237,8 @@ public class ActivityPubImpl implements ActivityPub {
             Follow follow = new Follow();
             follow.id(relation.followActivityId().orElse(null));
             follow.actor(ObjectOrLink.of(follower)).object(ObjectOrLink.of(actor.id()));
-            answer.actor(ObjectOrLink.of(actor.id())).object(ObjectOrLink.of(follow));
-            answer.to(ObjectOrLink.of(follower));
-            publish(actor, answer);
+            answer.object(ObjectOrLink.of(follow));
+            doPublish(actor, answer, remote);
         });
     }
 
@@ -249,17 +269,18 @@ public class ActivityPubImpl implements ActivityPub {
      */
     @Override
     public Activity undo(LocalActor actor, URI activityId) {
+        Activity original = stores.objects().find(activityId)
+                .filter(Activity.class::isInstance).map(Activity.class::cast)
+                .filter(a -> a.actorUri().filter(actor.id()::equals).isPresent())
+                .orElseThrow(() -> new IllegalArgumentException(activityId + " is not an activity of " + actor.id()));
+        Undo undo = new Undo();
+        undo.actor(ObjectOrLink.of(actor.id())).object(ObjectOrLink.of(original));
+        copyAudience(original, undo);
+        RemoteRecipients remote = recipients.prefetch(undo);
         return transactions.inTransaction(() -> {
-            Activity original = stores.objects().find(activityId)
-                    .filter(Activity.class::isInstance).map(Activity.class::cast)
-                    .filter(a -> a.actorUri().filter(actor.id()::equals).isPresent())
-                    .orElseThrow(() -> new IllegalArgumentException(activityId + " is not an activity of " + actor.id()));
-            Undo undo = new Undo();
-            undo.actor(ObjectOrLink.of(actor.id())).object(ObjectOrLink.of(original));
-            copyAudience(original, undo);
-            publish(actor, undo);
+            doPublish(actor, undo, remote);
             if (original instanceof Follow follow) {
-                follow.objectUri().ifPresent(remote -> stores.followers().removeFollowing(actor.id(), remote));
+                follow.objectUri().ifPresent(followed -> stores.followers().removeFollowing(actor.id(), followed));
             }
             return undo;
         });

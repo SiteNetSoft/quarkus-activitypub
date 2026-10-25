@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
@@ -49,7 +50,8 @@ import io.restassured.parsing.Parser;
 public class OutboundPublishTest {
 
     @RegisterExtension
-    static final QuarkusUnitTest config = LoopbackTests.unitTest(AliceActor.class, RecordingDeliveryStore.class);
+    static final QuarkusUnitTest config = LoopbackTests.unitTest(AliceActor.class, RecordingDeliveryStore.class,
+            TrackingTransactionRunner.class, FetchOutsideTransactionGuard.class);
 
     static final FakeFediverseServer fake = new FakeFediverseServer();
     static final URI ALICE = AliceActor.ID;
@@ -117,9 +119,17 @@ public class OutboundPublishTest {
         return (Activity) json.read(request.body());
     }
 
+    /** No remote fetch (recipient lookup) ran inside the publishing transaction. */
+    private static void noFetchInTransaction(URI expectedFetch) {
+        assertTrue(FetchOutsideTransactionGuard.fetched(expectedFetch), "the recipient was looked up");
+        assertEquals(List.of(), FetchOutsideTransactionGuard.callsInTransaction());
+    }
+
     @Test
     void createToFollowersDeliversOncePerInbox() {
-        Activity create = activityPub.create(alice(), note(ALICE_FOLLOWERS));
+        FakeActor kim = fake.actor("kim"); // not cached yet; shares carol's and erin's inbox
+        Activity create = activityPub.create(alice(), note(ALICE_FOLLOWERS, kim.id()));
+        noFetchInTransaction(kim.id());
         scheduler.run();
 
         List<ReceivedRequest> posts = receivedOf(create.id());
@@ -175,6 +185,7 @@ public class OutboundPublishTest {
     void followSendsFollowAndStoresPending() {
         FakeActor gus = fake.actor("gus");
         Activity follow = activityPub.follow(alice(), gus.id());
+        noFetchInTransaction(gus.id());
         assertEquals(Optional.of(FollowState.PENDING), stores.followers().followingState(ALICE, gus.id()));
         scheduler.run();
 
@@ -218,6 +229,23 @@ public class OutboundPublishTest {
             Tombstone tombstone = assertInstanceOf(Tombstone.class, received.embeddedObject().orElseThrow());
             assertEquals(noteId, tombstone.id());
         }
+    }
+
+    @Test
+    void deleteOfAnotherActorsObjectIsRefused() {
+        Note bobs = note(Audience.PUBLIC);
+        bobs.id(URI.create(LoopbackTests.BASE + "/objects/bobs-note"));
+        bobs.attributedTo(ObjectOrLink.of(URI.create(LoopbackTests.BASE + "/users/bob")));
+        stores.objects().putLocal(bobs, true);
+        URI remote = URI.create(fake.actor("carol").id() + "/notes/1");
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> activityPub.delete(alice(), bobs.id()));
+        assertTrue(e.getMessage().contains(bobs.id().toString()), e.getMessage());
+        assertThrows(IllegalArgumentException.class, () -> activityPub.delete(alice(), remote));
+        assertInstanceOf(Note.class, stores.objects().find(bobs.id()).orElseThrow());
+        scheduler.run();
+        assertEquals(0, fake.received().stream().filter(r -> r.method().equals("POST")).count());
     }
 
     @Test
