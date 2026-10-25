@@ -1,0 +1,13 @@
+name: "ActivityPub"
+artifact: ${project.groupId}:${project.artifactId}:${project.version}
+description: "ActivityPub server-to-server federation: actors, inboxes, collections and signed delivery"
+metadata:
+  keywords:
+    - "activitypub"
+    - "fediverse"
+    - "mastodon"
+    - "federation"
+  guide: "https://github.com/SiteNetSoft/quarkus-activitypub"
+  categories:
+    - "web"
+  status: "experimental"

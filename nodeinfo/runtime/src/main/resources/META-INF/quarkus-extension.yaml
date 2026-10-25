@@ -1,0 +1,13 @@
+name: "NodeInfo"
+artifact: ${project.groupId}:${project.artifactId}:${project.version}
+description: "NodeInfo 2.0/2.1 discovery and document, fed by an SPI"
+metadata:
+  keywords:
+    - "nodeinfo"
+    - "fediverse"
+    - "activitypub"
+    - "discovery"
+  guide: "https://github.com/SiteNetSoft/quarkus-activitypub"
+  categories:
+    - "web"
+  status: "experimental"

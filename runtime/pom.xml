@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.sitenetsoft.quarkus</groupId>
+    <artifactId>quarkus-activitypub-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+  <artifactId>quarkus-activitypub</artifactId>
+  <name>Quarkus ActivityPub - Runtime</name>
+  <description>ActivityPub server-to-server federation: actors, inboxes, collections and signed delivery</description>
+  <dependencies>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-nodeinfo</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>activitystreams-model</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-safe-fetch</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-webfinger</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>org.sitenetsoft.quarkus</groupId><artifactId>quarkus-http-signatures</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-scheduler</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-caffeine</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-vertx-http</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-jackson</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-mutiny</artifactId></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-micrometer</artifactId><optional>true</optional></dependency>
+    <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-smallrye-health</artifactId><optional>true</optional></dependency>
+    <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+  </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>io.quarkus</groupId>
+        <artifactId>quarkus-extension-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>compile</phase>
+            <goals><goal>extension-descriptor</goal></goals>
+            <configuration>
+              <deployment>${project.groupId}:${project.artifactId}-deployment:${project.version}</deployment>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin><artifactId>maven-compiler-plugin</artifactId></plugin>
+      <plugin><artifactId>maven-surefire-plugin</artifactId></plugin>
+    </plugins>
+  </build>
+</project>
