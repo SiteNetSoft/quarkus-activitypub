@@ -154,6 +154,31 @@ class TolerantParsingTest {
     }
 
     @Test
+    void nullListBecomesEmpty() throws Exception {
+        ASObject o = read("{\"type\":\"Note\",\"inReplyTo\":null,\"to\":null,\"rel\":null}");
+        assertTrue(o.inReplyTo().isEmpty());
+        assertTrue(o.to().isEmpty());
+        assertFalse(o.isPublic());
+        ASLink l = (ASLink) read("{\"type\":\"Link\",\"rel\":null}");
+        assertTrue(l.rel().isEmpty());
+    }
+
+    @Test
+    void nullTypeHasNoPrimaryType() throws Exception {
+        ASObject o = read("{\"type\":null}");
+        assertTrue(o.type().isEmpty());
+        assertNull(o.primaryType());
+        assertNull(read("{\"type\":[null]}").primaryType());
+    }
+
+    @Test
+    void nullListElementsSkipped() throws Exception {
+        ASObject o = read("{\"type\":\"Note\",\"to\":[null,\"https://a\"]}");
+        assertEquals(1, o.to().size());
+        assertEquals(Set.of(URI.create("https://a")), o.audienceUris());
+    }
+
+    @Test
     void copyIsDeep() throws Exception {
         ASObject o = read("{\"type\":\"Note\",\"to\":\"https://a/b\",\"foo\":{\"x\":1}}");
         ASObject c = o.copy();
