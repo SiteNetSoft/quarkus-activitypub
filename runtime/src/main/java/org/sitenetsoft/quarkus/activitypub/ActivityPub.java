@@ -8,7 +8,7 @@ import org.sitenetsoft.quarkus.activitypub.actor.LocalActor;
 
 /**
  * Publishes activities on behalf of local actors (blocking; do not call on the event loop). Twin of
- * {@link ReactiveActivityPub}; one implementation serves both.
+ * {@link ReactiveActivityPub}, whose default implementation runs this one on a worker thread.
  */
 public interface ActivityPub {
 

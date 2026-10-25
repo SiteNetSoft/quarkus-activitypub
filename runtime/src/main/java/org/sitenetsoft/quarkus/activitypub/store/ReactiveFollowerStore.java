@@ -32,4 +32,8 @@ public interface ReactiveFollowerStore {
     Uni<Long> followingCount(URI local);
 
     Uni<Optional<FollowState>> followingState(URI local, URI remote);
+
+    Uni<Optional<FollowRelation>> follower(URI local, URI remote);
+
+    Uni<Optional<FollowRelation>> followingRelation(URI local, URI remote);
 }

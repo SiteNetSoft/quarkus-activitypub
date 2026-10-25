@@ -36,4 +36,10 @@ public interface FollowerStore {
 
     /** State of {@code local} following {@code remote}, whatever it is. */
     Optional<FollowState> followingState(URI local, URI remote);
+
+    /** {@code remote} following {@code local}, in any state (pending requests included). */
+    Optional<FollowRelation> follower(URI local, URI remote);
+
+    /** {@code local} following {@code remote}, in any state. */
+    Optional<FollowRelation> followingRelation(URI local, URI remote);
 }

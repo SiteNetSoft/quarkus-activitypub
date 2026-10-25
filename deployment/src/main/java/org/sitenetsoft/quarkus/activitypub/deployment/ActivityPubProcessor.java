@@ -38,7 +38,17 @@ import org.sitenetsoft.quarkus.activitypub.inbox.handlers.FollowHandler;
 import org.sitenetsoft.quarkus.activitypub.inbox.handlers.UndoHandler;
 import org.sitenetsoft.quarkus.activitypub.keys.ActorKeyResolver;
 import org.sitenetsoft.quarkus.activitypub.keys.ActorSigningKeyProvider;
+import org.sitenetsoft.quarkus.activitypub.health.DeliveryHealthCheck;
 import org.sitenetsoft.quarkus.activitypub.nodeinfo.ActivityPubNodeInfoContributor;
+import org.sitenetsoft.quarkus.activitypub.outbound.ActivityPubImpl;
+import org.sitenetsoft.quarkus.activitypub.outbound.Clocks;
+import org.sitenetsoft.quarkus.activitypub.outbound.DeliveryExecutor;
+import org.sitenetsoft.quarkus.activitypub.outbound.DeliveryMetrics;
+import org.sitenetsoft.quarkus.activitypub.outbound.DeliveryScheduler;
+import org.sitenetsoft.quarkus.activitypub.outbound.DeliverySender;
+import org.sitenetsoft.quarkus.activitypub.outbound.OutboxDeliveryExecutor;
+import org.sitenetsoft.quarkus.activitypub.outbound.ReactiveActivityPubImpl;
+import org.sitenetsoft.quarkus.activitypub.outbound.RecipientResolver;
 import org.sitenetsoft.quarkus.activitypub.server.ActivityPubContentNegotiation;
 import org.sitenetsoft.quarkus.activitypub.server.ActorHandler;
 import org.sitenetsoft.quarkus.activitypub.server.CollectionHandler;
@@ -65,6 +75,8 @@ import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.UnremovableBeanBuildItem;
 import org.sitenetsoft.quarkus.activitypub.webfinger.ActivityPubWebFingerResolver;
 
+import io.quarkus.deployment.Capabilities;
+import io.quarkus.deployment.Capability;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
@@ -128,9 +140,34 @@ class ActivityPubProcessor {
                         ConfigDomainPolicy.class, DefaultFollowPolicy.class, DefaultRemoteObjectPolicy.class)
                 .setUnremovable()
                 .build());
+        beans.produce(AdditionalBeanBuildItem.builder()
+                .addBeanClasses(ActivityPubImpl.class, ReactiveActivityPubImpl.class, RecipientResolver.class,
+                        OutboxDeliveryExecutor.class, DeliveryScheduler.class, DeliverySender.class,
+                        DeliveryMetrics.class, Clocks.class)
+                .setUnremovable()
+                .build());
         indexed.produce(new AdditionalIndexedClassesBuildItem(ActivityPubWebFingerResolver.class.getName()));
         // the event qualifier must be in the bean archive index to be recognised
         beans.produce(AdditionalBeanBuildItem.unremovableOf(Inbound.class));
+    }
+
+    /**
+     * Delivery runs as a Quarkus Scheduler job: the build fails without {@code quarkus-scheduler} (a dependency of this
+     * extension, so a safety net only). The delivery readiness check is added when SmallRye Health is there to run it.
+     */
+    @BuildStep
+    void deliveryCapabilities(ActivityPubBuildTimeConfig config, Capabilities capabilities,
+            BuildProducer<AdditionalBeanBuildItem> beans) {
+        if (!config.enabled()) {
+            return;
+        }
+        if (!capabilities.isPresent(Capability.SCHEDULER)) {
+            throw new IllegalStateException("quarkus-activitypub delivers activities from a Quarkus Scheduler job, "
+                    + "but the io.quarkus:quarkus-scheduler extension is missing; add it to the application");
+        }
+        if (capabilities.isPresent(Capability.SMALLRYE_HEALTH)) {
+            beans.produce(AdditionalBeanBuildItem.unremovableOf(DeliveryHealthCheck.class));
+        }
     }
 
     /**
@@ -213,7 +250,7 @@ class ActivityPubProcessor {
     @BuildStep
     UnremovableBeanBuildItem unremovableInboxSpis() {
         return UnremovableBeanBuildItem.beanTypes(InboundActivityHandler.class, DomainPolicy.class, FollowPolicy.class,
-                RemoteObjectPolicy.class, ActivityPub.class, ReactiveActivityPub.class);
+                RemoteObjectPolicy.class, ActivityPub.class, ReactiveActivityPub.class, DeliveryExecutor.class);
     }
 
     @BuildStep

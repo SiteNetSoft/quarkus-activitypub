@@ -29,6 +29,7 @@ import org.sitenetsoft.quarkus.activitypub.store.ActorStore;
 import org.sitenetsoft.quarkus.activitypub.store.Delivery;
 import org.sitenetsoft.quarkus.activitypub.store.DeliveryState;
 import org.sitenetsoft.quarkus.activitypub.store.DeliveryStore;
+import org.sitenetsoft.quarkus.activitypub.store.FollowRelation;
 import org.sitenetsoft.quarkus.activitypub.store.FollowState;
 import org.sitenetsoft.quarkus.activitypub.store.FollowerStore;
 import org.sitenetsoft.quarkus.activitypub.store.HostHealth;
@@ -252,6 +253,29 @@ public abstract class StoreContractTest {
         followers().removeFollowing(me, a);
         assertEquals(Optional.empty(), followers().followingState(me, a));
         assertEquals(List.of(b), followers().following(me, 1, 10).items());
+    }
+
+    @Test
+    void relationsInAnyState() {
+        URI me = local("users/" + unique());
+        URI them = remote("users/" + unique());
+        URI follow = remote("follows/" + unique());
+        assertEquals(Optional.empty(), followers().follower(me, them));
+        followers().add(me, them, remote("inbox"), FollowState.PENDING, follow);
+        assertEquals(Optional.of(new FollowRelation(them, Optional.of(remote("inbox")), FollowState.PENDING,
+                Optional.of(follow))), followers().follower(me, them));
+        assertEquals(Optional.empty(), followers().followingRelation(me, them));
+
+        URI mine = local("activities/" + unique());
+        followers().addFollowing(me, them, FollowState.PENDING, mine);
+        assertEquals(Optional.of(new FollowRelation(them, Optional.empty(), FollowState.PENDING, Optional.of(mine))),
+                followers().followingRelation(me, them));
+
+        followers().add(me, them, remote("inbox"), FollowState.ACCEPTED, null);
+        assertEquals(Optional.of(new FollowRelation(them, Optional.of(remote("inbox")), FollowState.ACCEPTED,
+                Optional.empty())), followers().follower(me, them));
+        followers().remove(me, them);
+        assertEquals(Optional.empty(), followers().follower(me, them));
     }
 
     private static Delivery delivery(Instant now) {

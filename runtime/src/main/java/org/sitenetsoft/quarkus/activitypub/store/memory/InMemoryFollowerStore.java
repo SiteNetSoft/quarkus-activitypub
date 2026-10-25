@@ -12,6 +12,7 @@ import java.util.stream.Stream;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 
+import org.sitenetsoft.quarkus.activitypub.store.FollowRelation;
 import org.sitenetsoft.quarkus.activitypub.store.FollowState;
 import org.sitenetsoft.quarkus.activitypub.store.FollowerStore;
 import org.sitenetsoft.quarkus.activitypub.store.Page;
@@ -28,6 +29,10 @@ public class InMemoryFollowerStore implements FollowerStore {
 
     /** {@code inbox} is null for the "following" direction. */
     private record Relation(URI remote, URI inbox, FollowState state, URI followActivityId, long seq) {
+
+        FollowRelation view() {
+            return new FollowRelation(remote, Optional.ofNullable(inbox), state, Optional.ofNullable(followActivityId));
+        }
     }
 
     private final Map<Key, Relation> followers = new ConcurrentHashMap<>();
@@ -93,6 +98,16 @@ public class InMemoryFollowerStore implements FollowerStore {
     @Override
     public Optional<FollowState> followingState(URI local, URI remote) {
         return Optional.ofNullable(following.get(new Key(local, remote))).map(Relation::state);
+    }
+
+    @Override
+    public Optional<FollowRelation> follower(URI local, URI remote) {
+        return Optional.ofNullable(followers.get(new Key(local, remote))).map(Relation::view);
+    }
+
+    @Override
+    public Optional<FollowRelation> followingRelation(URI local, URI remote) {
+        return Optional.ofNullable(following.get(new Key(local, remote))).map(Relation::view);
     }
 
     /** Accepted relations of {@code local}, newest first. */
