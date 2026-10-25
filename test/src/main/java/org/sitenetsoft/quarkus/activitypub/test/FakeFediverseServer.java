@@ -49,7 +49,8 @@ import io.vertx.ext.web.handler.BodyHandler;
  * {@code publicKey.publicKeyPem} checked with {@link HttpVerifier}. Every request (signed GETs included) is verified the
  * same way and recorded.
  * <p>
- * Routes: {@code GET /.well-known/webfinger}, {@code GET /users/{u}}, {@code GET /objects/{id}},
+ * Routes: {@code GET /.well-known/webfinger}, {@code GET /users/{u}} (or a redirect, see
+ * {@link #redirect(String, URI)}), {@code GET /objects/{id}},
  * {@code POST /users/{u}/inbox}, {@code POST /inbox}. Inboxes answer {@code 401} to an unsigned or unverifiable request,
  * otherwise {@link #inboxStatus(int)} (default {@code 202}).
  */
@@ -62,6 +63,7 @@ public final class FakeFediverseServer {
     private final String host;
     private final Map<String, FakeActor> actors = new ConcurrentHashMap<>();
     private final Map<String, ASObject> objects = new ConcurrentHashMap<>();
+    private final Map<String, URI> redirects = new ConcurrentHashMap<>();
     private final List<ReceivedRequest> received = new CopyOnWriteArrayList<>();
     private volatile boolean rejectCavage;
     private volatile int inboxStatus = 202;
@@ -163,6 +165,12 @@ public final class FakeFediverseServer {
         return this;
     }
 
+    /** Answers {@code GET /users/{username}} with {@code 302 Location: location} (before any actor of that name). */
+    public FakeFediverseServer redirect(String username, URI location) {
+        redirects.put(username, location);
+        return this;
+    }
+
     void addObject(ASObject object) {
         String path = object.id().getRawPath();
         if (!object.id().getHost().equalsIgnoreCase(host) || object.id().getPort() != port() || path == null
@@ -178,6 +186,11 @@ public final class FakeFediverseServer {
         router.route().handler(this::verifyAndRecord);
         router.get("/.well-known/webfinger").handler(this::webfinger);
         router.get("/users/:username").handler(ctx -> {
+            URI location = redirects.get(ctx.pathParam("username"));
+            if (location != null) {
+                ctx.response().setStatusCode(302).putHeader("Location", location.toString()).end();
+                return;
+            }
             FakeActor actor = actors.get(ctx.pathParam("username"));
             if (actor == null) {
                 ctx.response().setStatusCode(404).end();

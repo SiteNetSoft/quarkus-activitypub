@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.List;
 
 import jakarta.inject.Inject;
@@ -24,6 +25,8 @@ import org.sitenetsoft.activitystreams.Person;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubException;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubUrls;
 import org.sitenetsoft.quarkus.activitypub.client.ActivityPubClient;
+import org.sitenetsoft.quarkus.activitypub.client.RemoteCache;
+import org.sitenetsoft.quarkus.activitypub.keys.ActorKeyResolver;
 import org.sitenetsoft.quarkus.activitypub.store.Stores;
 import org.sitenetsoft.quarkus.activitypub.test.FakeFediverseServer;
 import org.sitenetsoft.quarkus.activitypub.test.ReceivedRequest;
@@ -40,6 +43,9 @@ public class RemoteClientTest {
 
     static final FakeFediverseServer fake = new FakeFediverseServer();
 
+    /** Another origin (same loopback, other host name and port) that a redirect can lead to. */
+    static final FakeFediverseServer other = new FakeFediverseServer("localhost");
+
     @Inject
     ActivityPubClient client;
 
@@ -49,14 +55,22 @@ public class RemoteClientTest {
     @Inject
     Stores stores;
 
+    @Inject
+    RemoteCache cache;
+
+    @Inject
+    ActorKeyResolver keys;
+
     @BeforeAll
     static void startFake() {
         fake.start(FAKE_PORT);
+        other.start();
     }
 
     @AfterAll
     static void stopFake() {
         fake.stop();
+        other.stop();
     }
 
     @Test
@@ -96,6 +110,34 @@ public class RemoteClientTest {
         URI evil = fake.actor("evil").withId(URI.create("https://other.example/users/evil")).id();
         ActivityPubException e = assertThrows(ActivityPubException.class, () -> client.fetch(evil));
         assertEquals(ActivityPubException.Reason.ID_MISMATCH, e.reason());
+    }
+
+    /**
+     * An open redirect on the victim's host must not let another host speak for it: the attacker's document claims the
+     * victim's id and key, and would pass a check against the requested host.
+     */
+    @Test
+    void crossHostRedirectIsRefused() {
+        URI victim = fake.baseUri().resolve("/users/redirector");
+        URI attacker = other.actor("forger").withId(victim).id();
+        fake.redirect("redirector", attacker);
+
+        ActivityPubException e = assertThrows(ActivityPubException.class, () -> client.fetchActor(victim));
+        assertEquals(ActivityPubException.Reason.FETCH_FAILED, e.reason());
+        assertTrue(e.getMessage().contains("redirected to another host"), e.getMessage());
+        assertTrue(cache.get(victim).isEmpty());
+        assertTrue(keys.resolve(victim + "#main-key").await().atMost(Duration.ofSeconds(15)).isEmpty());
+        assertTrue(keys.ownerOf(victim + "#main-key").isEmpty());
+        assertTrue(other.requestCount("/users/forger") > 0, "the redirect was followed");
+    }
+
+    @Test
+    void sameHostRedirectIsFollowed() {
+        URI old = fake.baseUri().resolve("/users/old");
+        URI alice = fake.actor("alice").id();
+        fake.redirect("old", alice);
+        assertEquals(alice, client.fetchActor(old).id());
+        assertEquals(alice, cache.get(old).orElseThrow().id());
     }
 
     @Test

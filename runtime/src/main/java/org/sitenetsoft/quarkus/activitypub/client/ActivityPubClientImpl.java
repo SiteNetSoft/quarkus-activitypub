@@ -183,7 +183,16 @@ public class ActivityPubClientImpl implements ReactiveActivityPubClient {
                 .invoke(object -> cache.put(id, object));
     }
 
+    /**
+     * The document, provided it came from the requested host: a redirect to another host is refused (that host could
+     * claim any id on the requested one), and the document's {@code id} must be on the host it was finally served from.
+     */
     private ASObject parse(URI id, FetchResponse response) {
+        URI served = response.uri() != null ? response.uri() : id;
+        if (served.getHost() == null || !served.getHost().equalsIgnoreCase(id.getHost())) {
+            throw new ActivityPubException(Reason.FETCH_FAILED,
+                    "Fetch of " + id + " redirected to another host: " + served.getHost());
+        }
         int status = response.status();
         if (status == 404 || status == 410) {
             throw notFound(id);
@@ -193,9 +202,10 @@ public class ActivityPubClientImpl implements ReactiveActivityPubClient {
         }
         ASObject object = json.read(response.body());
         URI documentId = object.id();
-        if (documentId == null || documentId.getHost() == null || !documentId.getHost().equalsIgnoreCase(id.getHost())) {
+        if (documentId == null || documentId.getHost() == null
+                || !documentId.getHost().equalsIgnoreCase(served.getHost())) {
             throw new ActivityPubException(Reason.ID_MISMATCH,
-                    "Document fetched from " + id + " claims the id " + documentId);
+                    "Document fetched from " + served + " claims the id " + documentId);
         }
         return object;
     }

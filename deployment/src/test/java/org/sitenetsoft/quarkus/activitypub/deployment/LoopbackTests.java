@@ -10,13 +10,13 @@ import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import io.quarkus.test.QuarkusUnitTest;
 
 /**
- * Tests that talk to a {@code FakeFediverseServer} over loopback: the app serves on a fixed port so its {@code base-url}
+ * Tests that talk to a {@code FakeFediverseServer} over loopback: the app serves on a port reserved up front so its {@code base-url}
  * is known at config time (the fake fetches our actor to verify our signatures), and safe-fetch is relaxed for
  * {@code http://127.0.0.1}.
  */
 final class LoopbackTests {
 
-    static final int PORT = 8081;
+    static final int PORT = reservedPort("quarkus");
     static final String BASE = "http://127.0.0.1:" + PORT;
 
     private LoopbackTests() {
