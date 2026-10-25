@@ -11,6 +11,13 @@ import org.sitenetsoft.quarkus.activitypub.ActivityPubUrls;
 import org.sitenetsoft.quarkus.activitypub.actor.ActorDocuments;
 import org.sitenetsoft.quarkus.activitypub.actor.InstanceActor;
 import org.sitenetsoft.quarkus.activitypub.actor.LocalActors;
+import org.sitenetsoft.quarkus.activitypub.client.ActivityPubClient;
+import org.sitenetsoft.quarkus.activitypub.client.ActivityPubClientImpl;
+import org.sitenetsoft.quarkus.activitypub.client.BlockingActivityPubClient;
+import org.sitenetsoft.quarkus.activitypub.client.ReactiveActivityPubClient;
+import org.sitenetsoft.quarkus.activitypub.client.RemoteCache;
+import org.sitenetsoft.quarkus.activitypub.keys.ActorKeyResolver;
+import org.sitenetsoft.quarkus.activitypub.keys.ActorSigningKeyProvider;
 import org.sitenetsoft.quarkus.activitypub.nodeinfo.ActivityPubNodeInfoContributor;
 import org.sitenetsoft.quarkus.activitypub.server.ActivityPubContentNegotiation;
 import org.sitenetsoft.quarkus.activitypub.server.ActorHandler;
@@ -73,7 +80,8 @@ class ActivityPubProcessor {
     }
 
     /**
-     * Routes, JSON, the instance actor and the WebFinger and NodeInfo plug-ins, when {@code quarkus.activitypub.enabled}.
+     * Routes, JSON, the instance actor, the remote client, the WebFinger, NodeInfo and HTTP signature plug-ins, when
+     * {@code quarkus.activitypub.enabled}.
      * The resolver is also indexed because the WebFinger extension only registers its endpoint when the combined index
      * holds a resolver.
      */
@@ -87,7 +95,9 @@ class ActivityPubProcessor {
                 .addBeanClasses(ActivityPubObjectMapperCustomizer.class, ActivityPubJson.class, ActorDocuments.class,
                         InstanceActor.class, SignerIdentity.class, FetchAuthorization.class, ActorHandler.class,
                         CollectionHandler.class, ObjectHandler.class, ActivityPubContentNegotiation.class,
-                        ActivityPubWebFingerResolver.class, ActivityPubNodeInfoContributor.class)
+                        ActivityPubWebFingerResolver.class, ActivityPubNodeInfoContributor.class,
+                        ActivityPubClientImpl.class, BlockingActivityPubClient.class, RemoteCache.class,
+                        ActorKeyResolver.class, ActorSigningKeyProvider.class)
                 .setUnremovable()
                 .build());
         indexed.produce(new AdditionalIndexedClassesBuildItem(ActivityPubWebFingerResolver.class.getName()));
@@ -163,5 +173,10 @@ class ActivityPubProcessor {
         return UnremovableBeanBuildItem.beanTypes(ActorStore.class, ReactiveActorStore.class, ObjectStore.class,
                 ReactiveObjectStore.class, FollowerStore.class, ReactiveFollowerStore.class, DeliveryStore.class,
                 ReactiveDeliveryStore.class, TransactionRunner.class);
+    }
+
+    @BuildStep
+    UnremovableBeanBuildItem unremovableClients() {
+        return UnremovableBeanBuildItem.beanTypes(ActivityPubClient.class, ReactiveActivityPubClient.class);
     }
 }
