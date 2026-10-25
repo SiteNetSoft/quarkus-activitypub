@@ -1,0 +1,45 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    {
+      "ostatus": "http://ostatus.org#",
+      "atomUri": "ostatus:atomUri",
+      "sensitive": "as:sensitive",
+      "toot": "http://joinmastodon.org/ns#",
+      "votersCount": "toot:votersCount"
+    }
+  ],
+  "id": "https://mastodon.example/users/alice/statuses/110600000000000001",
+  "type": "Question",
+  "summary": null,
+  "inReplyTo": null,
+  "published": "2026-10-22T08:00:00Z",
+  "url": "https://mastodon.example/@alice/110600000000000001",
+  "attributedTo": "https://mastodon.example/users/alice",
+  "to": ["https://www.w3.org/ns/activitystreams#Public"],
+  "cc": ["https://mastodon.example/users/alice/followers"],
+  "sensitive": false,
+  "atomUri": "https://mastodon.example/users/alice/statuses/110600000000000001",
+  "content": "<p>Tabs or spaces?</p>",
+  "endTime": "2026-10-23T08:00:00Z",
+  "closed": "2026-10-23T08:00:00Z",
+  "votersCount": 12,
+  "oneOf": [
+    {
+      "type": "Note",
+      "name": "Tabs",
+      "replies": {
+        "type": "Collection",
+        "totalItems": 5
+      }
+    },
+    {
+      "type": "Note",
+      "name": "Spaces",
+      "replies": {
+        "type": "Collection",
+        "totalItems": 7
+      }
+    }
+  ]
+}

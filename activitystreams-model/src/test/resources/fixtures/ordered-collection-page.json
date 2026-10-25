@@ -1,0 +1,28 @@
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://mastodon.example/users/alice/outbox?page=true",
+  "type": "OrderedCollectionPage",
+  "next": "https://mastodon.example/users/alice/outbox?max_id=110523456789012345&page=true",
+  "prev": "https://mastodon.example/users/alice/outbox?min_id=110523456789012999&page=true",
+  "partOf": "https://mastodon.example/users/alice/outbox",
+  "orderedItems": [
+    {
+      "id": "https://mastodon.example/users/alice/statuses/110523456789012999/activity",
+      "type": "Create",
+      "actor": "https://mastodon.example/users/alice",
+      "published": "2026-10-24T18:30:00Z",
+      "to": ["https://www.w3.org/ns/activitystreams#Public"],
+      "cc": ["https://mastodon.example/users/alice/followers"],
+      "object": "https://mastodon.example/users/alice/statuses/110523456789012999"
+    },
+    {
+      "id": "https://mastodon.example/users/alice/statuses/110523456789012345/activity",
+      "type": "Create",
+      "actor": "https://mastodon.example/users/alice",
+      "published": "2026-10-20T09:15:30Z",
+      "to": ["https://www.w3.org/ns/activitystreams#Public"],
+      "cc": ["https://mastodon.example/users/alice/followers"],
+      "object": "https://mastodon.example/users/alice/statuses/110523456789012345"
+    }
+  ]
+}

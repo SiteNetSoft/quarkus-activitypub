@@ -1,0 +1,7 @@
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://social.example/users/bob#follows/6d0e2c1b",
+  "type": "Follow",
+  "actor": "https://social.example/users/bob",
+  "object": "https://mastodon.example/users/alice"
+}

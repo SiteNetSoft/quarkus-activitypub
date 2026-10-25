@@ -1,0 +1,69 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    {
+      "ostatus": "http://ostatus.org#",
+      "atomUri": "ostatus:atomUri",
+      "inReplyToAtomUri": "ostatus:inReplyToAtomUri",
+      "conversation": "ostatus:conversation",
+      "sensitive": "as:sensitive",
+      "toot": "http://joinmastodon.org/ns#",
+      "votersCount": "toot:votersCount",
+      "Hashtag": "as:Hashtag"
+    }
+  ],
+  "id": "https://mastodon.example/users/alice/statuses/110523456789012345/activity",
+  "type": "Create",
+  "actor": "https://mastodon.example/users/alice",
+  "published": "2026-10-20T09:15:30Z",
+  "to": ["https://www.w3.org/ns/activitystreams#Public"],
+  "cc": [
+    "https://mastodon.example/users/alice/followers",
+    "https://social.example/users/bob"
+  ],
+  "object": {
+    "id": "https://mastodon.example/users/alice/statuses/110523456789012345",
+    "type": "Note",
+    "summary": "Test post with a content warning",
+    "inReplyTo": null,
+    "published": "2026-10-20T09:15:30Z",
+    "url": "https://mastodon.example/@alice/110523456789012345",
+    "attributedTo": "https://mastodon.example/users/alice",
+    "to": ["https://www.w3.org/ns/activitystreams#Public"],
+    "cc": [
+      "https://mastodon.example/users/alice/followers",
+      "https://social.example/users/bob"
+    ],
+    "sensitive": true,
+    "atomUri": "https://mastodon.example/users/alice/statuses/110523456789012345",
+    "inReplyToAtomUri": null,
+    "conversation": "tag:mastodon.example,2026-10-20:objectId=7421:objectType=Conversation",
+    "content": "<p><span class=\"h-card\"><a href=\"https://social.example/@bob\" class=\"u-url mention\">@<span>bob</span></a></span> hello from the <a href=\"https://mastodon.example/tags/fediverse\" class=\"mention hashtag\" rel=\"tag\">#<span>fediverse</span></a></p>",
+    "contentMap": {
+      "en": "<p><span class=\"h-card\"><a href=\"https://social.example/@bob\" class=\"u-url mention\">@<span>bob</span></a></span> hello from the <a href=\"https://mastodon.example/tags/fediverse\" class=\"mention hashtag\" rel=\"tag\">#<span>fediverse</span></a></p>"
+    },
+    "attachment": [],
+    "tag": [
+      {
+        "type": "Mention",
+        "href": "https://social.example/users/bob",
+        "name": "@bob@social.example"
+      },
+      {
+        "type": "Hashtag",
+        "href": "https://mastodon.example/tags/fediverse",
+        "name": "#fediverse"
+      }
+    ],
+    "replies": {
+      "id": "https://mastodon.example/users/alice/statuses/110523456789012345/replies",
+      "type": "Collection",
+      "first": {
+        "type": "CollectionPage",
+        "next": "https://mastodon.example/users/alice/statuses/110523456789012345/replies?only_other_accounts=true&page=true",
+        "partOf": "https://mastodon.example/users/alice/statuses/110523456789012345/replies",
+        "items": []
+      }
+    }
+  }
+}

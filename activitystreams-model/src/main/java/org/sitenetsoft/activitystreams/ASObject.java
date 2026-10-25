@@ -205,6 +205,8 @@ public class ASObject {
     /** Deep copy via a JSON round trip, keeping the runtime class. */
     public ASObject copy() {
         ObjectMapper m = ASJson.defaultMapper();
-        return m.convertValue(m.valueToTree(this), getClass());
+        ASObject copy = m.convertValue(m.valueToTree(this), getClass());
+        copy.context = context; // the tree carries the default @context written for a root object; do not adopt it
+        return copy;
     }
 }

@@ -1,0 +1,81 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    "https://w3id.org/security/v1",
+    {
+      "manuallyApprovesFollowers": "as:manuallyApprovesFollowers",
+      "toot": "http://joinmastodon.org/ns#",
+      "featured": {"@id": "toot:featured", "@type": "@id"},
+      "featuredTags": {"@id": "toot:featuredTags", "@type": "@id"},
+      "alsoKnownAs": {"@id": "as:alsoKnownAs", "@type": "@id"},
+      "movedTo": {"@id": "as:movedTo", "@type": "@id"},
+      "schema": "http://schema.org#",
+      "PropertyValue": "schema:PropertyValue",
+      "value": "schema:value",
+      "discoverable": "toot:discoverable",
+      "Device": "toot:Device",
+      "Ed25519Signature": "toot:Ed25519Signature",
+      "Ed25519Key": "toot:Ed25519Key",
+      "Curve25519Key": "toot:Curve25519Key",
+      "EncryptedMessage": "toot:EncryptedMessage",
+      "publicKeyBase64": "toot:publicKeyBase64",
+      "deviceId": "toot:deviceId",
+      "claim": {"@type": "@id", "@id": "toot:claim"},
+      "fingerprintKey": {"@type": "@id", "@id": "toot:fingerprintKey"},
+      "identityKey": {"@type": "@id", "@id": "toot:identityKey"},
+      "devices": {"@type": "@id", "@id": "toot:devices"},
+      "messageFranking": "toot:messageFranking",
+      "messageType": "toot:messageType",
+      "cipherText": "toot:cipherText",
+      "suspended": "toot:suspended",
+      "focalPoint": {"@container": "@list", "@id": "toot:focalPoint"}
+    }
+  ],
+  "id": "https://mastodon.example/users/alice",
+  "type": "Person",
+  "following": "https://mastodon.example/users/alice/following",
+  "followers": "https://mastodon.example/users/alice/followers",
+  "inbox": "https://mastodon.example/users/alice/inbox",
+  "outbox": "https://mastodon.example/users/alice/outbox",
+  "featured": "https://mastodon.example/users/alice/collections/featured",
+  "featuredTags": "https://mastodon.example/users/alice/collections/tags",
+  "preferredUsername": "alice",
+  "name": "Alice",
+  "summary": "<p>Tinkerer. Fediverse enthusiast. <a href=\"https://mastodon.example/tags/opensource\" class=\"mention hashtag\" rel=\"tag\">#<span>opensource</span></a></p>",
+  "url": "https://mastodon.example/@alice",
+  "manuallyApprovesFollowers": false,
+  "discoverable": true,
+  "published": "2022-11-02T00:00:00Z",
+  "devices": "https://mastodon.example/users/alice/collections/devices",
+  "publicKey": {
+    "id": "https://mastodon.example/users/alice#main-key",
+    "owner": "https://mastodon.example/users/alice",
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu1SU1LfVLPHCozMxH2Mo\n4lgOEePzNm0tRgeLezV6ffAt0gunVTLw7onLRnrq0/IzW7yWR7QkrmBL7jTKEn5u\n+qKhbwKfBstIs+bMY2Zkp18gnTxKLxoS2tFczGkPLPgizskuemMghRniWaoLcyeh\nkd3qqGElvW/VDL5AaWTg0nLVkjRo9z+40RQzuVaE8AkAFmxZzow3x+VJYKdjykkJ\n0iT9wCS0DRTXu269V264Vf/3jvredZiKRkgwlL9xNAwxXFg0x/XFw005UWVRIkdg\ncKWTjpBP2dPwVZ4WWC+9aGVd+Gyn1o0CLelf4rEjGoXbAAEgAqeGUxrcIlbjXfbc\nmwIDAQAB\n-----END PUBLIC KEY-----\n"
+  },
+  "tag": [],
+  "attachment": [
+    {
+      "type": "PropertyValue",
+      "name": "Website",
+      "value": "<a href=\"https://alice.example\" target=\"_blank\" rel=\"nofollow noopener noreferrer me\"><span class=\"invisible\">https://</span><span class=\"\">alice.example</span><span class=\"invisible\"></span></a>"
+    },
+    {
+      "type": "PropertyValue",
+      "name": "Pronouns",
+      "value": "she/her"
+    }
+  ],
+  "endpoints": {
+    "sharedInbox": "https://mastodon.example/inbox"
+  },
+  "icon": {
+    "type": "Image",
+    "mediaType": "image/png",
+    "url": "https://files.mastodon.example/accounts/avatars/000/000/001/original/6f0c1e5a8d3b2a47.png"
+  },
+  "image": {
+    "type": "Image",
+    "mediaType": "image/jpeg",
+    "url": "https://files.mastodon.example/accounts/headers/000/000/001/original/0b9d7a3c51e4f862.jpg"
+  }
+}

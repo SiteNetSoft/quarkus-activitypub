@@ -137,9 +137,10 @@ class TolerantParsingTest {
 
     @Test
     void emptyListsOmitted() throws Exception {
-        ASObject o = new ASObject().id(URI.create("https://a/1"));
+        // an explicit context keeps the root default @context out of the picture
+        ASObject o = new ASObject().id(URI.create("https://a/1")).context(mapper.readTree("\"x\""));
         JsonNode out = write(o);
-        assertEquals(List.of("id"), iterableToList(out.fieldNames()));
+        assertEquals(List.of("@context", "id"), iterableToList(out.fieldNames()));
     }
 
     @Test

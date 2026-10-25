@@ -1,0 +1,13 @@
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://social.example/users/bob/statuses/109876543210987654/activity",
+  "type": "Announce",
+  "actor": "https://social.example/users/bob",
+  "published": "2026-10-21T14:02:11Z",
+  "to": ["https://www.w3.org/ns/activitystreams#Public"],
+  "cc": [
+    "https://social.example/users/bob/followers",
+    "https://mastodon.example/users/alice"
+  ],
+  "object": "https://mastodon.example/users/alice/statuses/110523456789012345"
+}

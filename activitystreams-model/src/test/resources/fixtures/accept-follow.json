@@ -1,0 +1,12 @@
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://mastodon.example/users/alice#accepts/follows/18",
+  "type": "Accept",
+  "actor": "https://mastodon.example/users/alice",
+  "object": {
+    "id": "https://social.example/users/bob#follows/6d0e2c1b",
+    "type": "Follow",
+    "actor": "https://social.example/users/bob",
+    "object": "https://mastodon.example/users/alice"
+  }
+}
