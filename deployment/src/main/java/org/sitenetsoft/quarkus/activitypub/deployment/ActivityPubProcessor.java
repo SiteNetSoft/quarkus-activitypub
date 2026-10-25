@@ -1,7 +1,23 @@
 package org.sitenetsoft.quarkus.activitypub.deployment;
 
+import java.util.Optional;
+
+import org.jboss.logging.Logger;
+import org.sitenetsoft.quarkus.activitypub.ActivityPubBuildTimeConfig;
+import org.sitenetsoft.quarkus.activitypub.ActivityPubJson;
+import org.sitenetsoft.quarkus.activitypub.ActivityPubObjectMapperCustomizer;
+import org.sitenetsoft.quarkus.activitypub.ActivityPubRecorder;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubUrls;
+import org.sitenetsoft.quarkus.activitypub.actor.ActorDocuments;
+import org.sitenetsoft.quarkus.activitypub.actor.InstanceActor;
 import org.sitenetsoft.quarkus.activitypub.actor.LocalActors;
+import org.sitenetsoft.quarkus.activitypub.nodeinfo.ActivityPubNodeInfoContributor;
+import org.sitenetsoft.quarkus.activitypub.server.ActivityPubContentNegotiation;
+import org.sitenetsoft.quarkus.activitypub.server.ActorHandler;
+import org.sitenetsoft.quarkus.activitypub.server.CollectionHandler;
+import org.sitenetsoft.quarkus.activitypub.server.FetchAuthorization;
+import org.sitenetsoft.quarkus.activitypub.server.ObjectHandler;
+import org.sitenetsoft.quarkus.activitypub.server.SignerIdentity;
 import org.sitenetsoft.quarkus.activitypub.store.ActorStore;
 import org.sitenetsoft.quarkus.activitypub.store.DeliveryStore;
 import org.sitenetsoft.quarkus.activitypub.store.FollowerStore;
@@ -20,12 +36,25 @@ import org.sitenetsoft.quarkus.activitypub.store.memory.NoTransactionRunner;
 
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.UnremovableBeanBuildItem;
+import org.sitenetsoft.quarkus.activitypub.webfinger.ActivityPubWebFingerResolver;
+
+import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
+import io.quarkus.deployment.annotations.ExecutionTime;
+import io.quarkus.deployment.annotations.Record;
+import io.quarkus.deployment.builditem.AdditionalIndexedClassesBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
+import io.quarkus.vertx.http.deployment.HttpRootPathBuildItem;
+import io.quarkus.vertx.http.deployment.RouteBuildItem;
 
 class ActivityPubProcessor {
 
     static final String FEATURE = "activitypub";
+
+    private static final Logger LOG = Logger.getLogger("org.sitenetsoft.quarkus.activitypub");
+    private static final String PATHS = "quarkus.activitypub.paths.";
+    private static final String USERNAME = "username";
+    private static final String ID = "id";
 
     @BuildStep
     FeatureBuildItem feature() {
@@ -41,6 +70,92 @@ class ActivityPubProcessor {
                         InMemoryDeliveryStore.class)
                 .setUnremovable()
                 .build();
+    }
+
+    /**
+     * Routes, JSON, the instance actor and the WebFinger and NodeInfo plug-ins, when {@code quarkus.activitypub.enabled}.
+     * The resolver is also indexed because the WebFinger extension only registers its endpoint when the combined index
+     * holds a resolver.
+     */
+    @BuildStep
+    void federationBeans(ActivityPubBuildTimeConfig config, BuildProducer<AdditionalBeanBuildItem> beans,
+            BuildProducer<AdditionalIndexedClassesBuildItem> indexed) {
+        if (!config.enabled()) {
+            return;
+        }
+        beans.produce(AdditionalBeanBuildItem.builder()
+                .addBeanClasses(ActivityPubObjectMapperCustomizer.class, ActivityPubJson.class, ActorDocuments.class,
+                        InstanceActor.class, SignerIdentity.class, FetchAuthorization.class, ActorHandler.class,
+                        CollectionHandler.class, ObjectHandler.class, ActivityPubContentNegotiation.class,
+                        ActivityPubWebFingerResolver.class, ActivityPubNodeInfoContributor.class)
+                .setUnremovable()
+                .build());
+        indexed.produce(new AdditionalIndexedClassesBuildItem(ActivityPubWebFingerResolver.class.getName()));
+    }
+
+    /**
+     * The actor, collection and object routes from the {@code paths.*} templates ({@code {username}} and {@code {id}}
+     * become the Vert.x parameters {@code :username} and {@code :id}). They sit at the server root, like the ids under
+     * {@code base-url}; inbox routes come with the inbox.
+     */
+    @BuildStep
+    @Record(ExecutionTime.STATIC_INIT)
+    void registerRoutes(ActivityPubBuildTimeConfig config, HttpRootPathBuildItem rootPath, ActivityPubRecorder recorder,
+            BuildProducer<RouteBuildItem> routes) {
+        if (!config.enabled() || !config.server().enabled()) {
+            LOG.debug("ActivityPub routes not registered: quarkus.activitypub.enabled or server.enabled is false");
+            return;
+        }
+        if (!"/".equals(rootPath.getRootPath())) {
+            LOG.warnf("quarkus.http.root-path is '%s'; ActivityPub still serves its routes at the server root because "
+                    + "actor and object ids are built from quarkus.activitypub.base-url", rootPath.getRootPath());
+        }
+        ActivityPubBuildTimeConfig.Paths paths = config.paths();
+        String actor = ActorHandler.class.getName();
+        String collections = CollectionHandler.class.getName();
+        String objects = ObjectHandler.class.getName();
+        route(routes, rootPath, recorder, "actor", paths.actor(), USERNAME, actor, null);
+        route(routes, rootPath, recorder, "outbox", paths.outbox(), USERNAME, collections, "OUTBOX");
+        route(routes, rootPath, recorder, "followers", paths.followers(), USERNAME, collections, "FOLLOWERS");
+        route(routes, rootPath, recorder, "following", paths.following(), USERNAME, collections, "FOLLOWING");
+        route(routes, rootPath, recorder, "objects", paths.objects(), ID, objects, ObjectHandler.OBJECTS);
+        route(routes, rootPath, recorder, "activities", paths.activities(), ID, objects, ObjectHandler.ACTIVITIES);
+    }
+
+    private static void route(BuildProducer<RouteBuildItem> routes, HttpRootPathBuildItem rootPath,
+            ActivityPubRecorder recorder, String property, String template, String param, String bean, String variant) {
+        Optional<String> path = vertxPath(PATHS + property, template, param);
+        if (path.isEmpty()) {
+            // an invalid template: ActivityPubUrls fails startup with the property name
+            return;
+        }
+        LOG.debugf("ActivityPub route %s -> %s", path.get(), property);
+        // HttpRootPathBuildItem's builder types a leading-slash path outside the root path as an absolute route
+        routes.produce(rootPath.routeBuilder().route(path.get()).handler(recorder.handler(bean, variant)).build());
+    }
+
+    /**
+     * The Vert.x route path of a template: {@code {param}} (exactly once) becomes {@code :param}. Empty when the
+     * placeholder is missing or repeated.
+     *
+     * @throws IllegalStateException when a letter, digit or {@code _} follows the placeholder (it would extend the
+     *         Vert.x parameter name)
+     */
+    static Optional<String> vertxPath(String property, String template, String param) {
+        String placeholder = "{" + param + "}";
+        int first = template.indexOf(placeholder);
+        if (first < 0 || template.indexOf(placeholder, first + 1) >= 0) {
+            return Optional.empty();
+        }
+        int after = first + placeholder.length();
+        if (after < template.length()) {
+            char c = template.charAt(after);
+            if (Character.isLetterOrDigit(c) || c == '_') {
+                throw new IllegalStateException(property + ": " + placeholder + " must not be followed by a letter, "
+                        + "digit or '_': '" + template + "'");
+            }
+        }
+        return Optional.of(template.substring(0, first) + ":" + param + template.substring(after));
     }
 
     @BuildStep

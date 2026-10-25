@@ -25,11 +25,6 @@ public interface ActivityPubConfig {
     URI baseUrl();
 
     /**
-     * Path templates, relative to {@code base-url}.
-     */
-    Paths paths();
-
-    /**
      * The instance actor, an {@code Application} that signs outbound fetches.
      */
     InstanceActor instanceActor();
@@ -84,56 +79,6 @@ public interface ActivityPubConfig {
      * Remote objects kept by the inbox.
      */
     RemoteObjects remoteObjects();
-
-    interface Paths {
-        /**
-         * Actor document.
-         */
-        @WithDefault("/users/{username}")
-        String actor();
-
-        /**
-         * Actor inbox.
-         */
-        @WithDefault("/users/{username}/inbox")
-        String inbox();
-
-        /**
-         * Actor outbox.
-         */
-        @WithDefault("/users/{username}/outbox")
-        String outbox();
-
-        /**
-         * Followers collection.
-         */
-        @WithDefault("/users/{username}/followers")
-        String followers();
-
-        /**
-         * Following collection.
-         */
-        @WithDefault("/users/{username}/following")
-        String following();
-
-        /**
-         * Shared inbox.
-         */
-        @WithDefault("/inbox")
-        String sharedInbox();
-
-        /**
-         * Local objects.
-         */
-        @WithDefault("/objects/{id}")
-        String objects();
-
-        /**
-         * Local activities.
-         */
-        @WithDefault("/activities/{id}")
-        String activities();
-    }
 
     interface InstanceActor {
         /**

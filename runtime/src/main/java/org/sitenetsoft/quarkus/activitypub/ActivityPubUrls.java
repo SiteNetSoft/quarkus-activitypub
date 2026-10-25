@@ -27,6 +27,9 @@ public class ActivityPubUrls {
     @Inject
     ActivityPubConfig config;
 
+    @Inject
+    ActivityPubBuildTimeConfig buildConfig;
+
     private URI baseUrl;
     private String base;
     private String basePath;
@@ -41,7 +44,7 @@ public class ActivityPubUrls {
 
     @PostConstruct
     void init() {
-        ActivityPubConfig.Paths paths = config.paths();
+        ActivityPubBuildTimeConfig.Paths paths = buildConfig.paths();
         actor = Template.of(PREFIX + "actor", paths.actor(), USERNAME);
         inbox = Template.of(PREFIX + "inbox", paths.inbox(), USERNAME);
         outbox = Template.of(PREFIX + "outbox", paths.outbox(), USERNAME);
@@ -59,6 +62,11 @@ public class ActivityPubUrls {
         }
         base = stripTrailingSlash(baseUrl.toString());
         basePath = stripTrailingSlash(baseUrl.getRawPath() == null ? "" : baseUrl.getRawPath());
+    }
+
+    /** {@code quarkus.activitypub.base-url}. */
+    public URI baseUrl() {
+        return baseUrl;
     }
 
     public URI actor(String username) {
