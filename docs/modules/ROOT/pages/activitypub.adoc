@@ -1,0 +1,174 @@
+= ActivityPub
+
+== Actors
+
+A *local actor* is an actor this server owns. Register one with `LocalActors`; the extension generates its RSA 2048
+key pair and keeps it in the `ActorStore`. Your code never handles private keys.
+
+[source,java]
+----
+@Inject LocalActors actors;
+
+LocalActor alice = actors.find("alice")
+        .orElseGet(() -> actors.register("alice", a -> a.name("Alice").summary("Writes about Quarkus")
+                .url(URI.create("https://example.com/@alice"))));
+----
+
+The id is always `ActivityPubUrls.actor(username)`, `{base-url}/users/alice` by default. The *instance actor*
+(`Application`, username `instance`) is created at startup when `quarkus.activitypub.instance-actor.enabled` and signs
+outbound fetches, which servers in "secure mode" (authorized fetch) require.
+
+== Routes
+
+Registered at the server root from the `quarkus.activitypub.paths.*` templates, relative to `base-url`:
+
+[cols="2,3"]
+|===
+|Route |Behaviour
+
+|`GET /users/{username}` |The actor document for `application/activity+json` or `application/ld+json; profile=...`;
+otherwise `302` to the actor's `url`, else `406`
+|`POST /users/{username}/inbox`, `POST /inbox` |HTTP signature verified (`401` otherwise), `202` and processed on a
+virtual thread; duplicates and blocked domains also get `202`
+|`GET /users/{username}/outbox` |`OrderedCollection` of public activities, pages with `?page=N`
+|`GET /users/{username}/followers`, `/following` |By `collections.followers-visibility`: `public`, `count-only`, `hidden`
+|`GET /objects/{id}`, `/activities/{id}` |Stored local objects; `410` for a tombstone; non-public objects only to signed
+requests from their audience
+|`GET /.well-known/webfinger` |`acct:alice@example.com` and the actor URL itself (via `quarkus-webfinger`)
+|===
+
+Apps whose object ids are their own page URLs put `ActivityPubContentNegotiation` in front of their HTML routes.
+
+== Publishing
+
+`ActivityPub` (blocking) and `ReactiveActivityPub` (Mutiny) publish on behalf of a local actor:
+
+[source,java]
+----
+Note note = new Note();
+note.content("<p>Hello</p>");
+note.to(ObjectOrLink.of(Audience.PUBLIC));
+note.cc(ObjectOrLink.of(urls.followers("alice")));
+Activity create = activityPub.create(alice, note);   // also update, delete, follow, undoFollow, announce, like, undo
+----
+
+Ids are assigned under `/objects/` and `/activities/` when missing. The activity is stored, added to the outbox and one
+delivery per recipient inbox is queued (the followers collection expands to follower inboxes, shared inboxes are
+de-duplicated, `bcc` is stripped). Call it inside your `@Transactional` method with the Hibernate stores and it is a
+transactional outbox.
+
+== Delivery
+
+A Quarkus Scheduler job polls every `delivery.poll-interval`, claims up to `delivery.batch-size` due deliveries and
+sends them signed (Cavage by default; a `401` triggers one RFC 9421 retry, remembered per host). Outcomes:
+
+* `2xx`: `DELIVERED`.
+* `408`, `429`, `5xx`, transport errors, `401`/`403` after double knocking: retried with backoff until
+  `delivery.max-attempts`, then `GIVEN_UP`.
+* Any other status: `FAILED`, not retried.
+
+After five consecutive failures a host is paused; a host failing for `delivery.dead-after` gets new deliveries given up
+at once. `DeliveryCompleted` and `DeliveryFailed` CDI events report each outcome. With SmallRye Health, readiness turns
+DOWN when the oldest pending delivery is older than `health.max-backlog-age`.
+
+== Inbox
+
+Every verified activity fires a CDI event qualified `@Inbound`, typed by its class:
+
+[source,java]
+----
+@Inject InboundActivityContext inbound;   // request scoped: recipient(), signerActor(), rawJson()
+
+void onCreate(@Observes @Inbound Create create) { ... }
+void onAnything(@Observes @Inbound Activity activity) { ... }
+----
+
+Built-in side effects: `Follow` (answered by `FollowPolicy`: accept, or `PENDING` when the actor manually approves
+followers), `Undo`, `Accept`/`Reject` of our follows, `Create`/`Update` (kept when `RemoteObjectPolicy` says so:
+addressed to a local actor or replying to a local object) and `Delete`. Replace one with an
+`InboundActivityHandler<T>` of higher `@Priority`; fetch remote data in `prepare` (outside the transaction), write in
+`handle`. `DomainPolicy` (default: `blocked-domains`) runs on the event loop and must not block.
+
+== Fetching
+
+`ActivityPubClient.fetch(uri)`, `fetchActor(uri)` and `resolveActor("bob@mastodon.example")` (WebFinger, then fetch)
+go through safe-fetch, are signed by the instance actor and cached (`fetch.cache-ttl`, `fetch.actor-cache-ttl`). A
+document whose `id` is on another host than the URL it came from is rejected. `ReactiveActivityPubClient` is the Mutiny
+twin.
+
+== Stores
+
+Four SPIs hold the state: `ActorStore`, `ObjectStore`, `FollowerStore`, `DeliveryStore`, each with a `Reactive*` twin;
+provide either form. The defaults are in memory (lost on restart, WARN in prod). Add
+xref:hibernate.adoc[`quarkus-activitypub-hibernate`] or implement your own, and check it with `StoreContractTest`
+from `quarkus-activitypub-test`. `Stores` gives both views of whatever is in use.
+
+== Testing
+
+`quarkus-activitypub-test` has `FakeFediverseServer`, a remote server on loopback that serves WebFinger and actors,
+verifies HTTP signatures on its inboxes and records every request:
+
+[source,java]
+----
+FakeFediverseServer fake = new FakeFediverseServer().start();
+FakeActor carol = fake.actor("carol");
+carol.post(aliceInbox, follow, Scheme.CAVAGE);
+await().until(() -> fake.received().stream().anyMatch(r -> r.path().equals("/inbox") && r.verified()));
+----
+
+Loopback tests need `quarkus.safe-fetch.https-only=false` and `quarkus.safe-fetch.allow-private-addresses=true`.
+
+== Dev UI
+
+The card shows the base URL, the instance actor, the local actor count, the delivery queue (pending, failed, given up)
+and paused hosts. Pages:
+
+* *Actors*: every local actor, with its actor document and WebFinger answer.
+* *Inbox log*: the last 100 inbox outcomes (type, actor, result).
+* *Fetch*: a document by URL, or an actor by `user@host`, through the client.
+* *Deliveries*: the queue by state, with *Retry now* (the delivery becomes due and a poll runs).
+
+No page shows private keys or signature values. `quarkus.activitypub.devui.enabled=false` hides the card.
+
+== Configuration
+
+All `quarkus.activitypub.*`.
+
+[cols="3,2,4"]
+|===
+|Property |Default |Purpose
+
+|`enabled` |`true` |Enable the extension (build time)
+|`server.enabled` |`true` |Register the actor, inbox, outbox, collection and object routes (build time)
+|`devui.enabled` |`true` |Show the Dev UI card (build time)
+|`paths.actor` |`/users/{username}` |Actor document (build time)
+|`paths.inbox` |`/users/{username}/inbox` |Actor inbox (build time)
+|`paths.outbox` |`/users/{username}/outbox` |Actor outbox (build time)
+|`paths.followers` |`/users/{username}/followers` |Followers collection (build time)
+|`paths.following` |`/users/{username}/following` |Following collection (build time)
+|`paths.shared-inbox` |`/inbox` |Shared inbox (build time)
+|`paths.objects` |`/objects/{id}` |Local objects (build time)
+|`paths.activities` |`/activities/{id}` |Local activities (build time)
+|`base-url` |required |Public base URL; every id starts with it
+|`instance-actor.enabled` |`true` |Create and serve the instance actor
+|`instance-actor.username` |`instance` |Username of the instance actor
+|`authorized-fetch` |`false` |Require a valid HTTP signature on every ActivityPub GET
+|`blocked-domains` |none |Domains whose activities are dropped, matched by suffix
+|`collections.page-size` |`20` |Items per collection page
+|`collections.followers-visibility` |`public` |`public`, `count-only` or `hidden`
+|`cache-control.actor` |`max-age=300` |`Cache-Control` of actor documents
+|`fetch.timeout` |`10s` |Per-request timeout
+|`fetch.max-size` |`1M` |Larger documents are rejected
+|`fetch.cache-ttl` |`10m` |How long fetched objects are cached
+|`fetch.actor-cache-ttl` |`1h` |How long fetched actors are cached
+|`delivery.poll-interval` |`5s` |How often the delivery job polls
+|`delivery.batch-size` |`50` |Deliveries claimed per poll
+|`delivery.parallelism` |`8` |Concurrent sends per poll
+|`delivery.max-attempts` |`8` |Attempts before a delivery is given up
+|`delivery.signature-scheme` |`cavage` |`cavage` or `rfc9421`
+|`delivery.dead-after` |`30d` |A host failing this long gets new deliveries given up immediately
+|`health.max-backlog-age` |`1h` |Readiness DOWN when the oldest pending delivery is older
+|`user-agent` |`quarkus-activitypub/{version} (+{base-url})` |`User-Agent` of outbound requests
+|`dedup.retention` |`7d` |How long inbound activity ids are remembered
+|`remote-objects.retention` |`90d` |How long kept remote objects live; `0` disables expiry
+|===

@@ -3,6 +3,7 @@ package org.sitenetsoft.quarkus.activitypub.store;
 import static org.sitenetsoft.quarkus.activitypub.store.Bridge.offload;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Optional;
 
 import org.sitenetsoft.quarkus.activitypub.actor.ActorKeyPair;
@@ -32,6 +33,11 @@ final class ReactiveActorStoreAdapter implements ReactiveActorStore {
     @Override
     public Uni<Long> countLocalActors() {
         return offload(d::countLocalActors);
+    }
+
+    @Override
+    public Uni<List<LocalActor>> list(int limit) {
+        return offload(() -> d.list(limit));
     }
 
     @Override

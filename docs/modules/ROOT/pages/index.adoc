@@ -1,0 +1,61 @@
+= Quarkus ActivityPub
+:extension-status: experimental
+
+ActivityPub server-to-server federation for Quarkus. Your application owns its users and its content; the extension
+makes them federate: actor documents, WebFinger, inboxes with HTTP signature verification, outboxes and collections,
+and signed delivery with retries. Mastodon and other Fediverse servers can find your actors, follow them and receive
+their posts.
+
+Minimum supported Quarkus: *3.40 (LTS)*. Status: experimental, version 0.1.
+
+== Modules
+
+[cols="2,3"]
+|===
+|Artifact |Purpose
+
+|`activitystreams-model` |ActivityStreams 2.0 / ActivityPub vocabulary, plain Jackson, no Quarkus
+|`quarkus-nodeinfo` |NodeInfo 2.0/2.1 discovery and documents (standalone), see xref:nodeinfo.adoc[NodeInfo]
+|`quarkus-activitypub` |Actors, inboxes, collections, signed delivery, see xref:activitypub.adoc[ActivityPub]
+|`quarkus-activitypub-hibernate` |Database stores and transactional outbox, see xref:hibernate.adoc[Hibernate ORM stores]
+|`quarkus-activitypub-test` |`FakeFediverseServer` and `StoreContractTest` for your tests
+|`quarkus-activitypub-bom` |Version alignment
+|===
+
+`quarkus-activitypub` builds on the Tier 1 extensions `quarkus-safe-fetch` (every outbound request),
+`quarkus-webfinger` (discovery) and `quarkus-http-signatures` (signing and verification).
+
+== Getting started
+
+[source,xml]
+----
+<dependency>
+  <groupId>org.sitenetsoft.quarkus</groupId>
+  <artifactId>quarkus-activitypub</artifactId>
+</dependency>
+----
+
+[source,properties]
+----
+quarkus.activitypub.base-url=https://example.com
+----
+
+[source,java]
+----
+@Inject LocalActors actors;
+@Inject ActivityPub activityPub;
+@Inject ActivityPubUrls urls;
+
+LocalActor alice = actors.register("alice", a -> a.name("Alice"));
+
+Note note = new Note();
+note.content("<p>Hello, fediverse</p>");
+note.to(ObjectOrLink.of(Audience.PUBLIC));
+note.cc(ObjectOrLink.of(urls.followers("alice")));
+activityPub.create(alice, note);
+----
+
+`@alice@example.com` is now discoverable from Mastodon; her followers receive the `Create(Note)`.
+
+The repository's `integration-tests` module is a runnable sample (`mvn quarkus:dev -pl integration-tests`, port 8081):
+`POST /demo/post?user=alice&text=...` publishes, `GET /demo/inbox-log` shows what the inbox received.

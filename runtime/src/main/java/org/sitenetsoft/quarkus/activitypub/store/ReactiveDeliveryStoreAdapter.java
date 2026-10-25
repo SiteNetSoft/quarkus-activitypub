@@ -48,6 +48,11 @@ final class ReactiveDeliveryStoreAdapter implements ReactiveDeliveryStore {
     }
 
     @Override
+    public Uni<List<Delivery>> list(DeliveryState state, int limit) {
+        return offload(() -> d.list(state, limit));
+    }
+
+    @Override
     public Uni<Long> pendingCount() {
         return offload(d::pendingCount);
     }

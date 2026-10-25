@@ -1,6 +1,7 @@
 package org.sitenetsoft.quarkus.activitypub.store;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Optional;
 
 import org.sitenetsoft.quarkus.activitypub.actor.ActorKeyPair;
@@ -17,6 +18,9 @@ public interface ActorStore {
     Optional<LocalActor> findById(URI id);
 
     long countLocalActors();
+
+    /** Up to {@code limit} local actors, ordered by username. */
+    List<LocalActor> list(int limit);
 
     Optional<ActorKeyPair> keyPair(URI actorId);
 

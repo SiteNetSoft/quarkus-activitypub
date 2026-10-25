@@ -163,6 +163,18 @@ public class HibernateDeliveryStore implements DeliveryStore {
     }
 
     @Override
+    public List<Delivery> list(DeliveryState state, int limit) {
+        if (limit < 1) {
+            return List.of();
+        }
+        return QuarkusTransaction.joiningExisting().call(() -> em()
+                .createQuery("from ApDelivery d where d.state = :state order by d.created desc, d.id desc",
+                        ApDelivery.class)
+                .setParameter("state", state).setMaxResults(limit).getResultList().stream()
+                .map(HibernateDeliveryStore::toDelivery).toList());
+    }
+
+    @Override
     public long pendingCount() {
         return QuarkusTransaction.joiningExisting().call(() -> em()
                 .createQuery("select count(d) from ApDelivery d where d.state = :pending", Long.class)

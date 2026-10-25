@@ -2,6 +2,7 @@ package org.sitenetsoft.quarkus.activitypub.hibernate;
 
 import java.net.URI;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -55,6 +56,16 @@ public class HibernateActorStore implements ActorStore {
     public long countLocalActors() {
         return QuarkusTransaction.joiningExisting()
                 .call(() -> em().createQuery("select count(a) from ApLocalActor a", Long.class).getSingleResult());
+    }
+
+    @Override
+    public List<LocalActor> list(int limit) {
+        if (limit < 1) {
+            return List.of();
+        }
+        return QuarkusTransaction.joiningExisting().call(() -> em()
+                .createQuery("from ApLocalActor a order by a.username", ApLocalActor.class)
+                .setMaxResults(limit).getResultList().stream().map(this::toActor).toList());
     }
 
     @Override

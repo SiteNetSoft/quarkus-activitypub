@@ -1,0 +1,5 @@
+* xref:index.adoc[Introduction]
+* xref:activitypub.adoc[ActivityPub]
+* xref:hibernate.adoc[Hibernate ORM stores]
+* xref:nodeinfo.adoc[NodeInfo]
+* xref:interop.adoc[Mastodon interop]

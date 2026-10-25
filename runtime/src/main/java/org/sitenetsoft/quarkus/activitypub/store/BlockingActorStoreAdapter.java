@@ -3,6 +3,7 @@ package org.sitenetsoft.quarkus.activitypub.store;
 import static org.sitenetsoft.quarkus.activitypub.store.Bridge.await;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Optional;
 
 import org.sitenetsoft.quarkus.activitypub.actor.ActorKeyPair;
@@ -30,6 +31,11 @@ final class BlockingActorStoreAdapter implements ActorStore {
     @Override
     public long countLocalActors() {
         return await(d.countLocalActors());
+    }
+
+    @Override
+    public List<LocalActor> list(int limit) {
+        return await(d.list(limit));
     }
 
     @Override

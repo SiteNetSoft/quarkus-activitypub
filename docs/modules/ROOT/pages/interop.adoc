@@ -1,0 +1,85 @@
+= Mastodon interop (manual)
+
+The automated tests federate with `FakeFediverseServer`. Checking against a real Mastodon is a manual procedure: it
+needs a public HTTPS hostname, because Mastodon only talks to `https` servers on public addresses. The repository's
+`integration-tests` module is the sample app used for it.
+
+== Procedure
+
+. *Build the sample.* From the repository root (siblings `quarkus-safe-fetch`, `quarkus-webfinger` and
+  `quarkus-http-signatures` installed first):
++
+[source,shell]
+----
+mvn -T 8 install -DskipTests
+----
+
+. *Expose it with a public HTTPS hostname*, for example `ap-test.example.net`, through a reverse proxy (Caddy, nginx)
+  or a tunnel (cloudflared, ngrok) to `localhost:8081`. The proxy must keep the request path at the root (in particular
+  `/.well-known/webfinger`), pass the `Host` header through unchanged and not rewrite request bodies.
+
+. *Start the sample with that hostname as its base URL.* The `prod` profile keeps safe-fetch strict (https only, no
+  private addresses), which is what a real federation needs:
++
+[source,shell]
+----
+java -Dquarkus.activitypub.base-url=https://ap-test.example.net \
+     -jar integration-tests/target/quarkus-app/quarkus-run.jar
+----
++
+`DemoActors` registers `alice` at startup.
+
+. *Check discovery from outside*:
++
+[source,shell]
+----
+curl -s 'https://ap-test.example.net/.well-known/webfinger?resource=acct:alice@ap-test.example.net'
+curl -s -H 'Accept: application/activity+json' https://ap-test.example.net/users/alice
+----
++
+The first returns a JRD with a `self` link to `https://ap-test.example.net/users/alice`; the second the actor document
+with its `publicKey`.
+
+. *Search `@alice@ap-test.example.net` in Mastodon* (the search box of any account on a Mastodon server) and open the
+  profile.
+
+. *Follow* alice. Mastodon sends a signed `Follow`; the sample's default `FollowPolicy` accepts it and delivers a signed
+  `Accept`. Mastodon shows "Following" (not "Requested").
++
+[source,shell]
+----
+curl -s https://ap-test.example.net/demo/inbox-log
+----
++
+shows the `Follow` with result `accepted`.
+
+. *Publish* through the sample:
++
+[source,shell]
+----
+curl -s -X POST 'https://ap-test.example.net/demo/post?user=alice&text=Hello%20from%20Quarkus'
+----
++
+The response is the id of the `Create` activity.
+
+. *Observe*: the post appears in the Mastodon account's home timeline within a few seconds (the delivery job polls
+  every `quarkus.activitypub.delivery.poll-interval`). Replies from Mastodon arrive as `Create` in the inbox log.
+
+== Troubleshooting
+
+* *`401` on the inbox* (inbox log result `rejected`; enable `DEBUG` for the `org.sitenetsoft.quarkus.activitypub`
+  category to see why):
+** clock skew: the `Date` header is checked against `quarkus.http-signatures.verify.clock-skew` (default `5m`); sync
+   the host clock (NTP);
+** `Digest` mismatch: something between Mastodon and the app re-encoded the body (a proxy decompressing or rewriting
+   it); pass bodies through untouched;
+** `Host` rewritten by the proxy: the signature covers `host`; forward the original `Host`.
+* *`404` on WebFinger*: `/.well-known/webfinger` does not reach the app. The ActivityPub and WebFinger routes are at the
+  server root whatever `quarkus.http.root-path` says; a proxy that only forwards a prefix (`/app/...`) must also route
+  `/.well-known/` to the app. Also check that the `acct:` host is exactly the host of `quarkus.activitypub.base-url`.
+* *Mastodon finds the profile but follows stay "Requested"*: the `Accept` was not delivered. The Dev UI *Deliveries* page
+  (dev mode) or the log shows the delivery's last error; deliveries go to `https` inboxes only.
+* *Mastodon in secure mode (authorized fetch) cannot load posts*: keep `quarkus.activitypub.instance-actor.enabled=true`
+  so fetches are signed.
+* *Posts do not arrive at all*: the scheduler must run (`quarkus.scheduler.enabled` not `false`), and the post must be
+  addressed to the followers collection (the sample does `to` Public, `cc` followers).

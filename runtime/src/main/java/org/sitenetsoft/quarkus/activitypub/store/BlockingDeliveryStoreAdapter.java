@@ -46,6 +46,11 @@ final class BlockingDeliveryStoreAdapter implements DeliveryStore {
     }
 
     @Override
+    public List<Delivery> list(DeliveryState state, int limit) {
+        return await(d.list(state, limit));
+    }
+
+    @Override
     public long pendingCount() {
         return await(d.pendingCount());
     }

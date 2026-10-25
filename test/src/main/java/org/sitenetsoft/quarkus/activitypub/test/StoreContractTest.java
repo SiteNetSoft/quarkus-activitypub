@@ -99,6 +99,21 @@ public abstract class StoreContractTest {
     }
 
     @Test
+    public void actorListByUsername() {
+        String prefix = unique();
+        LocalActor b = actor(prefix + "b", "B");
+        LocalActor a = actor(prefix + "a", "A");
+        actors().save(b, KEYS);
+        actors().save(a, KEYS);
+
+        List<String> listed = actors().list(Integer.MAX_VALUE).stream().map(LocalActor::username)
+                .filter(u -> u.startsWith(prefix)).toList();
+        assertEquals(List.of(a.username(), b.username()), listed);
+        assertEquals(1, actors().list(1).size());
+        assertEquals(List.of(), actors().list(0));
+    }
+
+    @Test
     public void actorSaveTwiceUpdates() {
         String username = "u" + unique();
         actors().save(actor(username, "First"), KEYS);
@@ -456,6 +471,23 @@ public abstract class StoreContractTest {
         deliveries().update(b.withState(DeliveryState.FAILED));
         assertEquals(before, deliveries().pendingCount());
         assertFalse(deliveries().oldestPending().filter(oldest::equals).isPresent());
+    }
+
+    @Test
+    public void deliveryListByStateNewestFirst() {
+        // far-future creation times so these sort before rows left behind by other tests
+        Instant t = Instant.parse("2300-01-01T00:00:00Z");
+        Delivery older = delivery(t).withState(DeliveryState.GIVEN_UP);
+        Delivery newer = delivery(t.plusSeconds(1)).withState(DeliveryState.GIVEN_UP);
+        Delivery pending = delivery(t.plusSeconds(2));
+        deliveries().save(List.of(older, newer, pending));
+
+        assertEquals(List.of(newer.id(), older.id()),
+                deliveries().list(DeliveryState.GIVEN_UP, 2).stream().map(Delivery::id).toList());
+        List<String> pendingIds = deliveries().list(DeliveryState.PENDING, 1000).stream().map(Delivery::id).toList();
+        assertTrue(pendingIds.contains(pending.id()));
+        assertFalse(pendingIds.contains(older.id()));
+        assertEquals(List.of(), deliveries().list(DeliveryState.GIVEN_UP, 0));
     }
 
     @Test

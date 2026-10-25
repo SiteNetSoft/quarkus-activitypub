@@ -1,0 +1,5 @@
+name: quarkus-activitypub
+title: Quarkus ActivityPub
+version: dev
+nav:
+  - modules/ROOT/nav.adoc

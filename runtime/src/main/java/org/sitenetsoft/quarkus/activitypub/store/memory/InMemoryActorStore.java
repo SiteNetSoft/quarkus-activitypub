@@ -1,6 +1,8 @@
 package org.sitenetsoft.quarkus.activitypub.store.memory;
 
 import java.net.URI;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,6 +45,12 @@ public class InMemoryActorStore implements ActorStore {
     @Override
     public long countLocalActors() {
         return byId.size();
+    }
+
+    @Override
+    public List<LocalActor> list(int limit) {
+        return byId.values().stream().map(Entry::actor).sorted(Comparator.comparing(LocalActor::username))
+                .limit(Math.max(limit, 0)).toList();
     }
 
     @Override

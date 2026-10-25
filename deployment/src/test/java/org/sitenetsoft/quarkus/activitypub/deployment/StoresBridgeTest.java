@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Optional;
 
 import jakarta.inject.Inject;
@@ -76,6 +77,11 @@ public class StoresBridgeTest {
         @Override
         public Uni<Long> countLocalActors() {
             return Uni.createFrom().item(delegate::countLocalActors);
+        }
+
+        @Override
+        public Uni<List<LocalActor>> list(int limit) {
+            return Uni.createFrom().item(() -> delegate.list(limit));
         }
 
         @Override

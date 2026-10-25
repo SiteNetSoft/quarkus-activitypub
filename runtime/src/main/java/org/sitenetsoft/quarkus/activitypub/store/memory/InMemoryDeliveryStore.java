@@ -91,6 +91,13 @@ public class InMemoryDeliveryStore implements DeliveryStore {
     }
 
     @Override
+    public List<Delivery> list(DeliveryState state, int limit) {
+        return rows.values().stream().map(Row::delivery).filter(d -> d.state() == state)
+                .sorted(Comparator.comparing(Delivery::created).thenComparing(Delivery::id).reversed())
+                .limit(Math.max(limit, 0)).toList();
+    }
+
+    @Override
     public long pendingCount() {
         return rows.values().stream().filter(r -> r.delivery().state() == DeliveryState.PENDING).count();
     }

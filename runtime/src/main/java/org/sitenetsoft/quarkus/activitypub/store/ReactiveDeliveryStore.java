@@ -23,6 +23,8 @@ public interface ReactiveDeliveryStore {
 
     Uni<Void> pauseHost(String host, Instant until);
 
+    Uni<List<Delivery>> list(DeliveryState state, int limit);
+
     Uni<Long> pendingCount();
 
     Uni<Optional<Instant>> oldestPending();

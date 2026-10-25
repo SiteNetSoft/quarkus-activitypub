@@ -29,6 +29,12 @@ public interface DeliveryStore {
     /** Holds deliveries to {@code host} until {@code until}. */
     void pauseHost(String host, Instant until);
 
+    /**
+     * Up to {@code limit} deliveries in {@code state}, most recently created first (ties by id), for inspection; does
+     * not claim them.
+     */
+    List<Delivery> list(DeliveryState state, int limit);
+
     long pendingCount();
 
     /** Creation time of the oldest pending delivery. */
