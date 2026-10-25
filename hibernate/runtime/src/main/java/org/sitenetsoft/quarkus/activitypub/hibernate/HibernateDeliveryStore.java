@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -186,5 +187,24 @@ public class HibernateDeliveryStore implements DeliveryStore {
         return QuarkusTransaction.joiningExisting().call(() -> Optional.ofNullable(em()
                 .createQuery("select min(d.created) from ApDelivery d where d.state = :pending", Instant.class)
                 .setParameter("pending", DeliveryState.PENDING).getSingleResult()));
+    }
+
+    @Override
+    public Optional<Instant> oldestDue(Instant now) {
+        return QuarkusTransaction.joiningExisting().call(() -> Optional.ofNullable(em()
+                .createQuery("select min(d.nextAttempt) from ApDelivery d where d.state = :pending"
+                        + " and d.nextAttempt <= :now", Instant.class)
+                .setParameter("pending", DeliveryState.PENDING).setParameter("now", now).getSingleResult()));
+    }
+
+    /** A bulk delete: rows loaded earlier in the caller's transaction are not evicted (the retention job has none). */
+    @Override
+    public int purge(Set<DeliveryState> states, Instant before) {
+        if (states.isEmpty()) {
+            return 0;
+        }
+        return QuarkusTransaction.joiningExisting().call(() -> em()
+                .createQuery("delete from ApDelivery d where d.state in :states and d.created < :before")
+                .setParameter("states", states).setParameter("before", before).executeUpdate());
     }
 }

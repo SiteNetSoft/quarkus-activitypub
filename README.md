@@ -89,7 +89,7 @@ All `quarkus.activitypub.*`. Build-time properties are fixed when the applicatio
 | `instance-actor.enabled` | `true` | Create and serve the instance actor (an `Application` that signs outbound fetches) |
 | `instance-actor.username` | `instance` | Username of the instance actor |
 | `authorized-fetch` | `false` | Require a valid HTTP signature on every ActivityPub GET |
-| `blocked-domains` | none | Domains whose activities are dropped, matched by suffix |
+| `blocked-domains` | none | Domains whose activities are dropped and that are never delivered to or fetched from (keys included), matched by suffix |
 | `collections.page-size` | `20` | Items per collection page |
 | `collections.followers-visibility` | `public` | `public`, `count-only` or `hidden` (404) for followers and following |
 | `cache-control.actor` | `max-age=300` | `Cache-Control` of actor documents |
@@ -97,13 +97,17 @@ All `quarkus.activitypub.*`. Build-time properties are fixed when the applicatio
 | `fetch.max-size` | `1M` | Larger remote documents are rejected |
 | `fetch.cache-ttl` | `10m` | How long fetched objects are cached |
 | `fetch.actor-cache-ttl` | `1h` | How long fetched actors are cached |
+| `fetch.key-refetch-interval` | `60s` | A signature key is fetched again (key rotation) at most once per interval |
+| `fetch.negative-cache-ttl` | `5m` | How long a key id that did not resolve is not fetched again |
 | `delivery.poll-interval` | `5s` | How often the delivery job polls for due deliveries |
 | `delivery.batch-size` | `50` | Deliveries claimed per poll |
 | `delivery.parallelism` | `8` | Concurrent sends per poll |
 | `delivery.max-attempts` | `8` | Attempts before a delivery is given up |
 | `delivery.signature-scheme` | `cavage` | `cavage` or `rfc9421` |
 | `delivery.dead-after` | `30d` | A host failing this long gets new deliveries given up immediately |
-| `health.max-backlog-age` | `1h` | Readiness is DOWN when the oldest pending delivery is older |
+| `delivery.retention` | `7d` | Finished deliveries (`DELIVERED`, `FAILED`, `GIVEN_UP`) older than this are deleted daily; `0` keeps them |
+| `inbox.max-concurrency` | `64` | Accepted activities processed at once (one virtual thread each); more wait |
+| `health.max-backlog-age` | `1h` | Readiness is DOWN when a due delivery has waited longer (backoff does not count) |
 | `user-agent` | `quarkus-activitypub/{version} (+{base-url})` | `User-Agent` of outbound requests |
 | `dedup.retention` | `7d` | How long inbound activity ids are remembered |
 | `remote-objects.retention` | `90d` | How long kept remote objects live; `0` disables expiry |

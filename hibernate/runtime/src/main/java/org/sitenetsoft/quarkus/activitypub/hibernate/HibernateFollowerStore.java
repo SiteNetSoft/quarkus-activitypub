@@ -173,6 +173,17 @@ public class HibernateFollowerStore implements FollowerStore {
         });
     }
 
+    @Override
+    public boolean knowsRemote(URI remote) {
+        return QuarkusTransaction.joiningExisting().call(() -> {
+            String id = remote.toString();
+            return !em().createQuery("select 1 from ApFollower f where f.remote = :remote", Integer.class)
+                    .setParameter("remote", id).setMaxResults(1).getResultList().isEmpty()
+                    || !em().createQuery("select 1 from ApFollowing f where f.remote = :remote", Integer.class)
+                            .setParameter("remote", id).setMaxResults(1).getResultList().isEmpty();
+        });
+    }
+
     private long count(String entity, URI local) {
         return em().createQuery("select count(f) from " + entity + " f where f.local = :local and f.state = :state",
                 Long.class).setParameter("local", local.toString()).setParameter("state", FollowState.ACCEPTED)

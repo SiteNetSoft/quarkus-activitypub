@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -307,6 +308,25 @@ public abstract class StoreContractTest {
         assertEquals(Optional.empty(), followers().follower(me, them));
     }
 
+    @Test
+    public void knowsRemoteInEitherDirectionAndAnyState() {
+        URI me = local("users/" + unique());
+        URI follower = remote("users/" + unique());
+        URI followed = remote("users/" + unique());
+        URI stranger = remote("users/" + unique());
+        followers().add(me, follower, remote("inbox"), FollowState.PENDING, remote("follows/" + unique()));
+        followers().addFollowing(me, followed, FollowState.PENDING, local("activities/" + unique()));
+
+        assertTrue(followers().knowsRemote(follower));
+        assertTrue(followers().knowsRemote(followed));
+        assertFalse(followers().knowsRemote(stranger));
+
+        followers().removeAll(follower);
+        followers().removeAll(followed);
+        assertFalse(followers().knowsRemote(follower));
+        assertFalse(followers().knowsRemote(followed));
+    }
+
     // Within one transaction a write is visible to the reads and writes after it (a store must not leave stale
     // state behind, e.g. cached entities that a bulk delete bypassed).
 
@@ -471,6 +491,53 @@ public abstract class StoreContractTest {
         deliveries().update(b.withState(DeliveryState.FAILED));
         assertEquals(before, deliveries().pendingCount());
         assertFalse(deliveries().oldestPending().filter(oldest::equals).isPresent());
+    }
+
+    @Test
+    public void oldestDueCountsOnlyDuePendingDeliveries() {
+        // centuries before every other test's rows, so none of theirs is due at these instants
+        Instant now = Instant.parse("1700-06-01T00:00:00Z");
+        Delivery due = delivery(Instant.parse("1700-01-01T00:00:00Z"));
+        Delivery dueLater = delivery(Instant.parse("1700-03-01T00:00:00Z"));
+        Delivery backoff = delivery(Instant.parse("1700-12-01T00:00:00Z"));
+        Delivery done = delivery(Instant.parse("1600-01-01T00:00:00Z")).withState(DeliveryState.DELIVERED);
+        deliveries().save(List.of(due, dueLater, backoff, done));
+
+        assertEquals(Optional.of(due.nextAttempt()), deliveries().oldestDue(now));
+        assertEquals(Optional.empty(), deliveries().oldestDue(Instant.parse("1650-01-01T00:00:00Z")),
+                "a delivered row is never due");
+        // a later attempt (backoff) moves it out of the due set
+        deliveries().update(due.withNextAttempt(Instant.parse("1701-01-01T00:00:00Z")));
+        assertEquals(Optional.of(dueLater.nextAttempt()), deliveries().oldestDue(now));
+        deliveries().update(dueLater.withState(DeliveryState.GIVEN_UP));
+        assertEquals(Optional.empty(), deliveries().oldestDue(now));
+        deliveries().update(due.withState(DeliveryState.DELIVERED));
+        deliveries().update(backoff.withState(DeliveryState.DELIVERED));
+    }
+
+    @Test
+    public void purgeDeletesFinishedDeliveriesCreatedBefore() {
+        // earlier than every other test's rows, so no other row is old enough
+        Instant t = Instant.parse("1500-01-01T00:00:00Z");
+        Delivery delivered = delivery(t).withState(DeliveryState.DELIVERED);
+        Delivery failed = delivery(t).withState(DeliveryState.FAILED);
+        Delivery givenUp = delivery(t).withState(DeliveryState.GIVEN_UP);
+        Delivery pending = delivery(t);
+        Delivery recent = delivery(t.plusSeconds(7200)).withState(DeliveryState.DELIVERED);
+        deliveries().save(List.of(delivered, failed, givenUp, pending, recent));
+
+        Set<DeliveryState> finished = Set.of(DeliveryState.DELIVERED, DeliveryState.FAILED, DeliveryState.GIVEN_UP);
+        assertEquals(3, deliveries().purge(finished, t.plusSeconds(3600)));
+
+        List<String> left = java.util.stream.Stream.of(DeliveryState.values())
+                .flatMap(s -> deliveries().list(s, 100_000).stream()).map(Delivery::id).toList();
+        assertFalse(left.contains(delivered.id()));
+        assertFalse(left.contains(failed.id()));
+        assertFalse(left.contains(givenUp.id()));
+        assertTrue(left.contains(pending.id()), "pending deliveries are kept");
+        assertTrue(left.contains(recent.id()), "created after the cutoff");
+        assertEquals(0, deliveries().purge(Set.of(), t.plusSeconds(1_000_000)));
+        deliveries().update(pending.withState(DeliveryState.DELIVERED));
     }
 
     @Test

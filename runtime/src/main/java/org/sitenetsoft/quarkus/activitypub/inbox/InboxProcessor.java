@@ -6,6 +6,13 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.Semaphore;
+
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
@@ -14,6 +21,7 @@ import jakarta.inject.Inject;
 
 import org.jboss.logging.Logger;
 import org.sitenetsoft.activitystreams.Activity;
+import org.sitenetsoft.quarkus.activitypub.ActivityPubConfig;
 import org.sitenetsoft.quarkus.activitypub.actor.LocalActor;
 import org.sitenetsoft.quarkus.activitypub.store.Stores;
 import org.sitenetsoft.quarkus.activitypub.store.TransactionRunner;
@@ -22,10 +30,11 @@ import io.quarkus.arc.All;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.InjectableContext.ContextState;
 import io.quarkus.arc.ManagedContext;
-import io.smallrye.mutiny.infrastructure.Infrastructure;
 
 /**
- * Processes an accepted inbound activity after the {@code 202}, on a worker thread: fills
+ * Processes an accepted inbound activity after the {@code 202}, on a virtual thread of its own (at most
+ * {@code quarkus.activitypub.inbox.max-concurrency} at a time; further activities wait for a slot on their virtual
+ * thread, never on the event loop or the shared worker pool, so slow remote fetches cannot starve the application): fills
  * {@link InboundActivityContext} in a fresh request context, runs the matching {@link InboundActivityHandler}'s
  * {@code prepare} (outside any transaction: remote fetches), then its {@code handle} and the synchronous
  * {@link Inbound} observers in one store transaction, then notifies the {@code @ObservesAsync} observers
@@ -57,12 +66,43 @@ public class InboxProcessor {
     @Inject
     Stores stores;
 
-    /** Runs {@link #process} on the default worker pool. */
-    public void submit(Optional<LocalActor> recipient, byte[] rawJson, Activity activity, String keyId, URI signerActor) {
-        Infrastructure.getDefaultWorkerPool().execute(() -> process(recipient, rawJson, activity, keyId, signerActor));
+    @Inject
+    ActivityPubConfig config;
+
+    private ExecutorService threads;
+    private Semaphore slots;
+
+    @PostConstruct
+    void init() {
+        threads = Executors.newVirtualThreadPerTaskExecutor();
+        slots = new Semaphore(Math.max(1, config.inbox().maxConcurrency()));
     }
 
-    /** Must run on a worker thread: handlers and synchronous observers may block. */
+    @PreDestroy
+    void shutdown() {
+        threads.shutdown();
+    }
+
+    /**
+     * Runs {@link #process} on a new virtual thread once one of the {@code inbox.max-concurrency} slots is free; returns
+     * at once (the slot is awaited on the virtual thread).
+     */
+    public void submit(Optional<LocalActor> recipient, byte[] rawJson, Activity activity, String keyId, URI signerActor) {
+        try {
+            threads.execute(() -> {
+                slots.acquireUninterruptibly();
+                try {
+                    process(recipient, rawJson, activity, keyId, signerActor);
+                } finally {
+                    slots.release();
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            LOG.warnf("Inbound %s %s dropped: shutting down", activity.getClass().getSimpleName(), activity.id());
+        }
+    }
+
+    /** Must run on a worker or virtual thread: handlers and synchronous observers may block. */
     public void process(Optional<LocalActor> recipient, byte[] rawJson, Activity activity, String keyId, URI signerActor) {
         ManagedContext requestContext = Arc.container().requestContext();
         requestContext.activate();
@@ -77,7 +117,7 @@ public class InboxProcessor {
             handler.ifPresent(h -> prepare(h, activity));
             failed = transactions.inTransaction(() -> handleAndNotify(handler, activity));
             async = selected(activity).fireAsync((Activity) activity.copy(),
-                    NotificationOptions.ofExecutor(withRequestContext(requestContext, state)));
+                    NotificationOptions.ofExecutor(withRequestContext(threads, requestContext, state)));
         } catch (RuntimeException e) {
             failed = true;
             LOG.warnf(e, "Inbound %s %s from %s failed", type, activity.id(), actor);
@@ -158,9 +198,10 @@ public class InboxProcessor {
         return event.select((Class) activity.getClass(), Inbound.Literal.INSTANCE);
     }
 
-    /** Worker-pool executor that runs each task inside the processing's request context. */
-    private static Executor withRequestContext(ManagedContext requestContext, ContextState state) {
-        return task -> Infrastructure.getDefaultWorkerPool().execute(() -> {
+    /** Runs each task on a virtual thread inside the processing's request context. */
+    private static Executor withRequestContext(ExecutorService threads, ManagedContext requestContext,
+            ContextState state) {
+        return task -> threads.execute(() -> {
             requestContext.activate(state);
             try {
                 task.run();

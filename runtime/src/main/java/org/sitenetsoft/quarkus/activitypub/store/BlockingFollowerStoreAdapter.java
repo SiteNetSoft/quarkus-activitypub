@@ -79,4 +79,9 @@ final class BlockingFollowerStoreAdapter implements FollowerStore {
     public Optional<FollowRelation> followingRelation(URI local, URI remote) {
         return await(d.followingRelation(local, remote));
     }
+
+    @Override
+    public boolean knowsRemote(URI remote) {
+        return await(d.knowsRemote(remote));
+    }
 }

@@ -2,6 +2,7 @@ package org.sitenetsoft.activitystreams;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** Registry mapping Activity Streams type names to Java classes. */
@@ -90,6 +91,11 @@ public final class ASTypes {
             }
         }
         return Optional.ofNullable(cls);
+    }
+
+    /** Every registered class (for example to register them for reflection in a native image). */
+    public Set<Class<? extends ASObject>> classes() {
+        return Set.copyOf(byName.values());
     }
 
     /** The type name a class was first registered under. */

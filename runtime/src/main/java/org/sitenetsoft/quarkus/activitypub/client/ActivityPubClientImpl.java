@@ -27,6 +27,7 @@ import org.sitenetsoft.quarkus.activitypub.ActivityPubUrls;
 import org.sitenetsoft.quarkus.activitypub.actor.ActorDocuments;
 import org.sitenetsoft.quarkus.activitypub.actor.InstanceActor;
 import org.sitenetsoft.quarkus.activitypub.actor.LocalActor;
+import org.sitenetsoft.quarkus.activitypub.inbox.DomainPolicy;
 import org.sitenetsoft.quarkus.activitypub.keys.KeyIds;
 import org.sitenetsoft.quarkus.activitypub.store.Stores;
 import org.sitenetsoft.quarkus.httpsignatures.client.RequestSigner;
@@ -48,8 +49,9 @@ import io.smallrye.mutiny.infrastructure.Infrastructure;
  * <p>
  * Remote GETs carry {@code Accept} (ActivityPub media types), {@code User-Agent} and, when the instance actor is
  * enabled, its signature ({@code Date}, {@code Host} and {@code (request-target)} signed with the scheme the host
- * accepted before, else Cavage, which Mastodon's secure mode verifies). Signing reads the actor store, so it runs on a
- * worker thread.
+ * accepted before, else Cavage, which Mastodon's secure mode verifies), always with the instance actor's own key: a
+ * request that would be signed with any other key fails with {@code FETCH_FAILED}. Signing reads the actor store, so
+ * it runs on a worker thread. Hosts blocked by {@link DomainPolicy} are never fetched ({@code BLOCKED}).
  */
 @ApplicationScoped
 public class ActivityPubClientImpl implements ReactiveActivityPubClient {
@@ -85,6 +87,9 @@ public class ActivityPubClientImpl implements ReactiveActivityPubClient {
 
     @Inject
     RequestSigner signer;
+
+    @Inject
+    DomainPolicy domains;
 
     @Override
     public Uni<ASObject> fetch(URI id) {
@@ -171,6 +176,10 @@ public class ActivityPubClientImpl implements ReactiveActivityPubClient {
     }
 
     private Uni<ASObject> remote(URI id) {
+        if (domains.allow(id.getHost()) == DomainPolicy.Decision.BLOCK) {
+            return Uni.createFrom().failure(new ActivityPubException(Reason.BLOCKED,
+                    "Refusing to fetch " + id + ": " + id.getHost() + " is a blocked domain"));
+        }
         Optional<ASObject> cached = cache.get(id);
         if (cached.isPresent()) {
             return Uni.createFrom().item(cached.get());
@@ -225,8 +234,19 @@ public class ActivityPubClientImpl implements ReactiveActivityPubClient {
         Headers headers = Headers.of(Map.of("Accept", List.of(ActivityPubMediaTypes.ACCEPT), "Date", List.of(date)));
         Scheme scheme = signer.memory().preferredFor(id.getHost()).orElse(Scheme.CAVAGE);
         options = options.withHeader("Date", date);
-        for (Map.Entry<String, String> h : signer.sign("GET", id, headers, null,
-                Optional.of(KeyIds.clientName(keyId)), scheme).headers().entrySet()) {
+        Map<String, String> signed;
+        try {
+            signed = signer.sign("GET", id, headers, null, Optional.of(KeyIds.clientName(keyId)), scheme).headers();
+        } catch (RuntimeException e) {
+            throw new ActivityPubException(Reason.FETCH_FAILED, "Cannot sign the fetch of " + id + " as the instance "
+                    + "actor: " + e.getMessage(), e);
+        }
+        Optional<String> used = KeyIds.signedKeyId(signed);
+        if (!used.filter(keyId::equals).isPresent()) {
+            throw new ActivityPubException(Reason.FETCH_FAILED, "Fetch of " + id + " would be signed with key "
+                    + used.orElse("<none>") + " instead of the instance actor's " + keyId);
+        }
+        for (Map.Entry<String, String> h : signed.entrySet()) {
             options = options.withHeader(h.getKey(), h.getValue());
         }
         return options;

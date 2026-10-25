@@ -117,4 +117,10 @@ public class InMemoryFollowerStore implements FollowerStore {
                 .map(Map.Entry::getValue)
                 .sorted(Comparator.comparingLong(Relation::seq).reversed());
     }
+
+    @Override
+    public boolean knowsRemote(URI remote) {
+        return followers.keySet().stream().anyMatch(k -> k.remote().equals(remote))
+                || following.keySet().stream().anyMatch(k -> k.remote().equals(remote));
+    }
 }

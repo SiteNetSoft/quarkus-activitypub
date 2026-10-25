@@ -22,6 +22,8 @@ public class InboxLog {
     public static final String ACCEPTED = "accepted";
     public static final String DUPLICATE = "duplicate";
     public static final String BLOCKED = "blocked";
+    /** A {@code Delete} of an actor we never knew: answered {@code 202} without verifying or processing it. */
+    public static final String IGNORED = "ignored";
     public static final String REJECTED = "rejected";
     public static final String INVALID = "invalid";
     public static final String ERROR = "error";

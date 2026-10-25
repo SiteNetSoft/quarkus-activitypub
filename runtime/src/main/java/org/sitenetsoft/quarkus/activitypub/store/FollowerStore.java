@@ -42,4 +42,7 @@ public interface FollowerStore {
 
     /** {@code local} following {@code remote}, in any state. */
     Optional<FollowRelation> followingRelation(URI local, URI remote);
+
+    /** Whether {@code remote} follows or is followed by any local actor, in any state. */
+    boolean knowsRemote(URI remote);
 }

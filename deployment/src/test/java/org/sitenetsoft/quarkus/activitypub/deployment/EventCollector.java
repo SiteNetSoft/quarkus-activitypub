@@ -28,7 +28,7 @@ public class EventCollector {
     static volatile boolean failOnFollow;
 
     public record Seen(String observer, Activity activity, Optional<LocalActor> recipient, URI signerActor,
-            String thread) {
+            String thread, boolean virtual) {
     }
 
     @Inject
@@ -59,7 +59,8 @@ public class EventCollector {
     }
 
     private void record(String observer, Activity activity) {
-        seen.add(new Seen(observer, activity, ctx.recipient(), ctx.signerActor(), Thread.currentThread().getName()));
+        seen.add(new Seen(observer, activity, ctx.recipient(), ctx.signerActor(), Thread.currentThread().getName(),
+                Thread.currentThread().isVirtual()));
     }
 
     /** What {@code observer} saw of the activity {@code id}. */

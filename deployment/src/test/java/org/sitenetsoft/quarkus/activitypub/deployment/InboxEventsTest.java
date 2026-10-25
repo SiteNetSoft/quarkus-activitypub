@@ -3,6 +3,7 @@ package org.sitenetsoft.quarkus.activitypub.deployment;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.sitenetsoft.quarkus.activitypub.deployment.InboxFixtures.ALICE;
 import static org.sitenetsoft.quarkus.activitypub.deployment.InboxFixtures.ALICE_INBOX;
 import static org.sitenetsoft.quarkus.activitypub.deployment.InboxFixtures.create;
@@ -60,6 +61,17 @@ public class InboxEventsTest {
         EventCollector.Seen seen = events.find("follow", follow.id()).get();
         assertEquals(ALICE, seen.recipient().orElseThrow().id());
         assertEquals(carol.id(), seen.signerActor());
+    }
+
+    @Test
+    void inboxProcessingRunsOnVirtualThread() {
+        FakeActor gina = fake.actor("gina");
+        Create create = create(gina, note(gina, ALICE));
+        assertEquals(202, gina.post(ALICE_INBOX, create, Scheme.CAVAGE).statusCode());
+        await().atMost(WAIT).until(() -> events.find("create", create.id()).isPresent()
+                && events.find("async", create.id()).isPresent());
+        assertTrue(events.find("create", create.id()).get().virtual(), "synchronous @Inbound observer");
+        assertTrue(events.find("async", create.id()).get().virtual(), "@ObservesAsync @Inbound observer");
     }
 
     @Test

@@ -53,7 +53,9 @@ activity's de-duplication marker is removed, so a redelivery is processed again.
 
 `RetentionJob` deletes, daily at 03:00, remote objects kept longer than `quarkus.activitypub.remote-objects.retention`
 (default `90d`) and de-duplication rows older than `quarkus.activitypub.dedup.retention` (default `7d`). A retention of
-`0` disables that part. Local objects never expire.
+`0` disables that part. Local objects never expire. Finished `ap_delivery` rows (`DELIVERED`, `FAILED`, `GIVEN_UP`,
+with their bodies) are deleted daily at 03:30 by the core `DeliveryRetentionJob` once older than
+`quarkus.activitypub.delivery.retention` (default `7d`).
 
 == Delivery runs on one node
 

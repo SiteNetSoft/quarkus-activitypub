@@ -36,4 +36,6 @@ public interface ReactiveFollowerStore {
     Uni<Optional<FollowRelation>> follower(URI local, URI remote);
 
     Uni<Optional<FollowRelation>> followingRelation(URI local, URI remote);
+
+    Uni<Boolean> knowsRemote(URI remote);
 }

@@ -22,6 +22,7 @@ import org.sitenetsoft.quarkus.activitypub.ActivityPubJson;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubUrls;
 import org.sitenetsoft.quarkus.activitypub.actor.LocalActor;
 import org.sitenetsoft.quarkus.activitypub.client.ActivityPubClient;
+import org.sitenetsoft.quarkus.activitypub.inbox.DomainPolicy;
 import org.sitenetsoft.quarkus.activitypub.store.Delivery;
 import org.sitenetsoft.quarkus.activitypub.store.DeliveryState;
 import org.sitenetsoft.quarkus.activitypub.store.Stores;
@@ -38,7 +39,9 @@ import org.sitenetsoft.quarkus.activitypub.store.Stores;
  * <li>a remote actor: fetched (cached) for its shared inbox, else its inbox;</li>
  * <li>a remote document that is not an actor (a collection): skipped, remote collections are not expanded;</li>
  * <li>a remote URL that cannot be fetched, or an actor without an inbox: a {@code FAILED} delivery to that URL with
- * the error, so the application can see who was not reached.</li>
+ * the error, so the application can see who was not reached;</li>
+ * <li>a remote recipient (or its inbox) on a host blocked by {@link DomainPolicy}: not fetched, a {@code FAILED}
+ * delivery with the error {@value #BLOCKED_DOMAIN}; followers' inboxes on blocked hosts are left out silently.</li>
  * </ul>
  * Inboxes are deduplicated. The body is the activity without {@code bto}/{@code bcc} (also removed from an embedded
  * object), serialised once and shared by every delivery.
@@ -48,6 +51,9 @@ public class RecipientResolver {
 
     private static final Logger LOG = Logger.getLogger("org.sitenetsoft.quarkus.activitypub");
     private static final ObjectOrLink[] NONE = {};
+
+    /** The error of a delivery not attempted because its host is blocked. */
+    public static final String BLOCKED_DOMAIN = "blocked domain";
 
     /**
      * What the remote recipients of an activity resolved to: an inbox, or the reason they cannot be reached. Remote
@@ -76,6 +82,13 @@ public class RecipientResolver {
     @Inject
     Clock clock;
 
+    @Inject
+    DomainPolicy domains;
+
+    private boolean blocked(URI uri) {
+        return uri.getHost() != null && domains.allow(uri.getHost()) == DomainPolicy.Decision.BLOCK;
+    }
+
     /**
      * Looks up the remote recipients of {@code activity} (blocking: up to {@code fetch.timeout} per recipient not yet
      * cached). Call it before opening the store transaction.
@@ -85,6 +98,11 @@ public class RecipientResolver {
         Map<URI, String> failures = new LinkedHashMap<>();
         for (URI recipient : activity.audienceUris()) {
             if (Audience.isPublic(recipient) || urls.isLocal(recipient)) {
+                continue;
+            }
+            if (blocked(recipient)) {
+                LOG.debugf("Activity %s: recipient %s is on a blocked domain", activity.id(), recipient);
+                failures.put(recipient, BLOCKED_DOMAIN);
                 continue;
             }
             ASObject document;
@@ -100,6 +118,8 @@ public class RecipientResolver {
                         document.primaryType());
             } else if (remote.deliveryInbox() == null) {
                 failures.put(recipient, "Recipient has no inbox");
+            } else if (blocked(remote.deliveryInbox())) {
+                failures.put(recipient, BLOCKED_DOMAIN);
             } else {
                 inboxes.put(recipient, remote.deliveryInbox());
             }
@@ -121,10 +141,18 @@ public class RecipientResolver {
             }
             if (recipient.equals(followers)) {
                 for (URI inbox : stores.followers().followerInboxes(actor.id())) {
+                    if (blocked(inbox)) {
+                        LOG.debugf("Activity %s: follower inbox %s is on a blocked domain; skipped", activity.id(), inbox);
+                        continue;
+                    }
                     byInbox.computeIfAbsent(inbox, i -> Delivery.create(i, activity.id(), body, keyId, now));
                 }
             } else if (urls.isLocal(recipient)) {
                 LOG.debugf("Activity %s: local recipient %s skipped", activity.id(), recipient);
+            } else if (blocked(recipient) || (remote.inboxes().containsKey(recipient)
+                    && blocked(remote.inboxes().get(recipient)))) {
+                failed.add(Delivery.create(recipient, activity.id(), body, keyId, now).withState(DeliveryState.FAILED)
+                        .withLastError(Optional.of(BLOCKED_DOMAIN)));
             } else if (remote.inboxes().containsKey(recipient)) {
                 byInbox.computeIfAbsent(remote.inboxes().get(recipient),
                         i -> Delivery.create(i, activity.id(), body, keyId, now));

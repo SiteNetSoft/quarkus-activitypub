@@ -81,4 +81,9 @@ final class ReactiveFollowerStoreAdapter implements ReactiveFollowerStore {
     public Uni<Optional<FollowRelation>> followingRelation(URI local, URI remote) {
         return offload(() -> d.followingRelation(local, remote));
     }
+
+    @Override
+    public Uni<Boolean> knowsRemote(URI remote) {
+        return offload(() -> d.knowsRemote(remote));
+    }
 }

@@ -2,6 +2,7 @@ package org.sitenetsoft.quarkus.nodeinfo.deployment;
 
 import org.jboss.logging.Logger;
 import org.sitenetsoft.quarkus.nodeinfo.ConfigNodeInfoProvider;
+import org.sitenetsoft.quarkus.nodeinfo.NodeInfo;
 import org.sitenetsoft.quarkus.nodeinfo.NodeInfoBuildTimeConfig;
 import org.sitenetsoft.quarkus.nodeinfo.NodeInfoContributor;
 import org.sitenetsoft.quarkus.nodeinfo.NodeInfoDocuments;
@@ -18,6 +19,7 @@ import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.vertx.http.deployment.HttpRootPathBuildItem;
 import io.quarkus.vertx.http.deployment.RouteBuildItem;
 
@@ -38,6 +40,16 @@ class NodeInfoProcessor {
         return AdditionalBeanBuildItem.builder()
                 .addBeanClasses(NodeInfoHandler.class, NodeInfoDocuments.class, ConfigNodeInfoProvider.class)
                 .setUnremovable()
+                .build();
+    }
+
+    /** The NodeInfo records are serialised by Jackson, by reflection in a native image. */
+    @BuildStep
+    ReflectiveClassBuildItem nodeInfoReflection() {
+        java.util.List<Class<?>> classes = new java.util.ArrayList<>();
+        classes.add(NodeInfo.class);
+        classes.addAll(java.util.List.of(NodeInfo.class.getDeclaredClasses()));
+        return ReflectiveClassBuildItem.builder(classes.toArray(Class<?>[]::new)).constructors().methods().fields()
                 .build();
     }
 

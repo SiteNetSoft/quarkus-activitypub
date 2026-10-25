@@ -56,8 +56,8 @@ public final class FakeActor {
     private final FakeFediverseServer server;
     private final String username;
     private final URI id;
-    private final KeyPair keys;
-    private final String publicKeyPem;
+    private volatile KeyPair keys;
+    private volatile String publicKeyPem;
     private volatile URI documentId;
     private volatile URI publicKeyOwner;
     private volatile boolean publicKeyAsArray;
@@ -66,9 +66,16 @@ public final class FakeActor {
         this.server = server;
         this.username = username;
         this.id = URI.create(server.baseUri() + "/users/" + username);
-        this.keys = generateRsa2048();
-        this.publicKeyPem = "-----BEGIN PUBLIC KEY-----\n" + PEM.encodeToString(keys.getPublic().getEncoded())
+        rotateKey();
+    }
+
+    /** Replaces the key pair (same key id), as an account rotating its key; the document serves the new key. */
+    public synchronized FakeActor rotateKey() {
+        KeyPair fresh = generateRsa2048();
+        publicKeyPem = "-----BEGIN PUBLIC KEY-----\n" + PEM.encodeToString(fresh.getPublic().getEncoded())
                 + "\n-----END PUBLIC KEY-----\n";
+        keys = fresh;
+        return this;
     }
 
     public String username() {

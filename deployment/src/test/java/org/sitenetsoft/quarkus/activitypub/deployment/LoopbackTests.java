@@ -23,9 +23,20 @@ final class LoopbackTests {
     }
 
     static QuarkusUnitTest unitTest(Class<?>... classes) {
+        return unitTestWithResources(new String[0], classes);
+    }
+
+    /** {@link #unitTest} with test {@code resources} (classpath paths) added to the application. */
+    static QuarkusUnitTest unitTestWithResources(String[] resources, Class<?>... classes) {
         return new QuarkusUnitTest()
-                .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class).addClass(LoopbackTests.class)
-                        .addClasses(classes))
+                .setArchiveProducer(() -> {
+                    JavaArchive jar = ShrinkWrap.create(JavaArchive.class).addClass(LoopbackTests.class)
+                            .addClasses(classes);
+                    for (String r : resources) {
+                        jar.addAsResource(r);
+                    }
+                    return jar;
+                })
                 .overrideConfigKey("quarkus.http.test-port", String.valueOf(PORT))
                 .overrideConfigKey("quarkus.activitypub.base-url", BASE)
                 .overrideConfigKey("quarkus.safe-fetch.https-only", "false")

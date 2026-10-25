@@ -61,6 +61,11 @@ public interface ActivityPubConfig {
     Delivery delivery();
 
     /**
+     * Inbound processing.
+     */
+    Inbox inbox();
+
+    /**
      * Readiness check.
      */
     Health health();
@@ -149,6 +154,20 @@ public interface ActivityPubConfig {
          */
         @WithDefault("1h")
         Duration actorCacheTtl();
+
+        /**
+         * A signature key is fetched again (after a verification failure, for key rotation) at most once per this
+         * interval; within it the last result is reused, so bogus signatures cannot make us send requests.
+         */
+        @WithDefault("60s")
+        Duration keyRefetchInterval();
+
+        /**
+         * How long a key id that could not be resolved (unknown, gone, unreachable, not matching its actor) is answered
+         * as unknown without fetching it again.
+         */
+        @WithDefault("5m")
+        Duration negativeCacheTtl();
     }
 
     interface Delivery {
@@ -188,11 +207,28 @@ public interface ActivityPubConfig {
          */
         @WithDefault("30d")
         Duration deadAfter();
+
+        /**
+         * How long finished deliveries ({@code DELIVERED}, {@code FAILED}, {@code GIVEN_UP}, with their bodies) are
+         * kept, counted from their creation; a daily job deletes older ones. {@code 0} keeps them forever.
+         */
+        @WithDefault("7d")
+        Duration retention();
+    }
+
+    interface Inbox {
+        /**
+         * Accepted activities processed at the same time, each on its own virtual thread; more wait for a free slot
+         * (they have been answered {@code 202} already).
+         */
+        @WithDefault("64")
+        int maxConcurrency();
     }
 
     interface Health {
         /**
-         * Readiness turns DOWN when the oldest pending delivery is older than this.
+         * Readiness turns DOWN when a due delivery (its next attempt reached) has waited longer than this. Deliveries
+         * waiting for their retry backoff do not count.
          */
         @WithDefault("1h")
         Duration maxBacklogAge();

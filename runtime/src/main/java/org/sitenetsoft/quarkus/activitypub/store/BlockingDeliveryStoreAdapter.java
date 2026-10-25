@@ -5,6 +5,7 @@ import static org.sitenetsoft.quarkus.activitypub.store.Bridge.await;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /** {@link DeliveryStore} over a {@link ReactiveDeliveryStore}. */
 final class BlockingDeliveryStoreAdapter implements DeliveryStore {
@@ -58,5 +59,15 @@ final class BlockingDeliveryStoreAdapter implements DeliveryStore {
     @Override
     public Optional<Instant> oldestPending() {
         return await(d.oldestPending());
+    }
+
+    @Override
+    public Optional<Instant> oldestDue(Instant now) {
+        return await(d.oldestDue(now));
+    }
+
+    @Override
+    public int purge(Set<DeliveryState> states, Instant before) {
+        return await(d.purge(states, before));
     }
 }

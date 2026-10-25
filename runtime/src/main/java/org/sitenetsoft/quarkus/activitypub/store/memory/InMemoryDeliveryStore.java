@@ -6,6 +6,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import jakarta.annotation.PostConstruct;
@@ -108,5 +109,27 @@ public class InMemoryDeliveryStore implements DeliveryStore {
                 .filter(r -> r.delivery().state() == DeliveryState.PENDING)
                 .map(r -> r.delivery().created())
                 .min(Comparator.naturalOrder());
+    }
+
+    @Override
+    public Optional<Instant> oldestDue(Instant now) {
+        return rows.values().stream()
+                .map(Row::delivery)
+                .filter(d -> d.state() == DeliveryState.PENDING && !d.nextAttempt().isAfter(now))
+                .map(Delivery::nextAttempt)
+                .min(Comparator.naturalOrder());
+    }
+
+    @Override
+    public synchronized int purge(Set<DeliveryState> states, Instant before) {
+        int[] removed = { 0 };
+        rows.values().removeIf(r -> {
+            boolean old = states.contains(r.delivery().state()) && r.delivery().created().isBefore(before);
+            if (old) {
+                removed[0]++;
+            }
+            return old;
+        });
+        return removed[0];
     }
 }

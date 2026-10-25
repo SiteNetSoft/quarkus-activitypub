@@ -3,6 +3,7 @@ package org.sitenetsoft.quarkus.activitypub.store;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import io.smallrye.mutiny.Uni;
 
@@ -28,4 +29,8 @@ public interface ReactiveDeliveryStore {
     Uni<Long> pendingCount();
 
     Uni<Optional<Instant>> oldestPending();
+
+    Uni<Optional<Instant>> oldestDue(Instant now);
+
+    Uni<Integer> purge(Set<DeliveryState> states, Instant before);
 }

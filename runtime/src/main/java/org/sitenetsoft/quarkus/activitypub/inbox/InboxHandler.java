@@ -10,14 +10,17 @@ import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 import org.sitenetsoft.activitystreams.ASObject;
 import org.sitenetsoft.activitystreams.Activity;
+import org.sitenetsoft.activitystreams.Delete;
 import org.sitenetsoft.httpsignatures.VerificationResult;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubConfig;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubMediaTypes;
 import org.sitenetsoft.quarkus.activitypub.actor.LocalActor;
+import org.sitenetsoft.quarkus.activitypub.keys.ActorKeyResolver;
 import org.sitenetsoft.quarkus.activitypub.server.ActivityPubRouting;
 import org.sitenetsoft.quarkus.activitypub.server.BeanHandler;
 import org.sitenetsoft.quarkus.activitypub.server.SignerIdentity;
 import org.sitenetsoft.quarkus.activitypub.store.Stores;
+import org.sitenetsoft.quarkus.httpsignatures.HttpSignaturesConfig;
 import org.sitenetsoft.quarkus.httpsignatures.vertx.RequestVerifier;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -33,8 +36,12 @@ import io.vertx.ext.web.RoutingContext;
 
 /**
  * {@code POST paths.inbox} and {@code POST paths.shared-inbox}. In order: unknown username → {@code 404}; no signature
- * or one that does not verify → {@code 401} ({@code WWW-Authenticate: Signature}); body over
- * {@code quarkus.http-signatures.verify.max-body-size} → {@code 413}; not an ActivityPub content type → {@code 415};
+ * → {@code 401} ({@code WWW-Authenticate: Signature}); body over {@code quarkus.http-signatures.verify.max-body-size}
+ * → {@code 413}; an activity whose {@code actor} is on a host blocked by {@link DomainPolicy} → {@code 202}, dropped
+ * without verifying (no key fetch from that host); a {@code Delete} of an actor by itself when that actor is unknown here
+ * (no key accepted recently, no follow relationship, not held in {@code ObjectStore}) → {@code 202}, dropped without
+ * verifying, so a deleted account's retries never make us fetch its (gone) key; a signature that does not verify →
+ * {@code 401}; not an ActivityPub content type → {@code 415};
  * not a JSON object, or not an activity → {@code 400}; {@code actor} absent or not the signer → {@code 401}; actor's
  * host blocked by {@link DomainPolicy} → {@code 202}, dropped; {@code id} (on the actor's host; other ids are not
  * deduplicated) already seen → {@code 202}, dropped;
@@ -75,6 +82,12 @@ public class InboxHandler implements BeanHandler.VariantHandler {
     @Inject
     InboxLog log;
 
+    @Inject
+    ActorKeyResolver keys;
+
+    @Inject
+    HttpSignaturesConfig signaturesConfig;
+
     @Override
     public Handler<RoutingContext> variant(String variant) {
         boolean shared = SHARED.equals(variant);
@@ -103,6 +116,64 @@ public class InboxHandler implements BeanHandler.VariantHandler {
             unauthorized(ctx, UNKNOWN, null);
             return;
         }
+        long maxBody = signaturesConfig.verify().maxBodySize().asLongValue();
+        onContext(RequestVerifier.body(ctx, maxBody)).subscribe().with(body -> {
+            try {
+                screen(ctx, recipient, body == null ? new byte[0] : body);
+            } catch (RuntimeException e) {
+                fail(ctx, e);
+            }
+        }, failure -> {
+            if (failure instanceof RequestVerifier.BodyTooLargeException) {
+                log.record(UNKNOWN, null, InboxLog.INVALID);
+                ctx.response().setStatusCode(413).end();
+            } else {
+                fail(ctx, failure);
+            }
+        });
+    }
+
+    /**
+     * Before verifying (which may fetch the signer's key): drops activities of blocked actors and self-deletes of
+     * actors we do not know, answering {@code 202}; everything else is verified.
+     */
+    private void screen(RoutingContext ctx, Optional<LocalActor> recipient, byte[] body) {
+        Optional<Activity> parsed = parse(body);
+        Optional<URI> actor = parsed.flatMap(Activity::actorUri);
+        if (actor.isPresent() && actor.get().getHost() != null
+                && domains.allow(actor.get().getHost()) == DomainPolicy.Decision.BLOCK) {
+            String type = parsed.get().getClass().getSimpleName();
+            LOG.debugf("Inbox %s: %s from blocked %s dropped", ctx.normalizedPath(), type, actor.get());
+            log.record(type, actor.get(), InboxLog.BLOCKED);
+            accepted(ctx);
+            return;
+        }
+        if (parsed.isPresent() && actor.isPresent() && isSelfDelete(parsed.get(), actor.get())
+                && !keys.knowsActor(actor.get())) {
+            URI deleted = actor.get();
+            Uni<Boolean> known = stores.reactiveFollowers().knowsRemote(deleted)
+                    .chain(follows -> follows ? Uni.createFrom().item(true)
+                            : stores.reactiveObjects().find(deleted).map(Optional::isPresent));
+            ActivityPubRouting.respond(ctx, known, isKnown -> {
+                if (isKnown) {
+                    verify(ctx, recipient);
+                } else {
+                    LOG.debugf("Inbox %s: Delete of unknown actor %s dropped unverified", ctx.normalizedPath(), deleted);
+                    log.record("Delete", deleted, InboxLog.IGNORED);
+                    accepted(ctx);
+                }
+            });
+            return;
+        }
+        verify(ctx, recipient);
+    }
+
+    /** A {@code Delete} whose object is its actor: an account deleting itself. */
+    private static boolean isSelfDelete(Activity activity, URI actor) {
+        return activity instanceof Delete && activity.objectUri().filter(actor::equals).isPresent();
+    }
+
+    private void verify(RoutingContext ctx, Optional<LocalActor> recipient) {
         onContext(verifier.verify(ctx)).subscribe().with(result -> {
             try {
                 verified(ctx, recipient, result);

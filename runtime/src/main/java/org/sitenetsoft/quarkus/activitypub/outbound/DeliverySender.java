@@ -105,7 +105,7 @@ public class DeliverySender {
         try {
             options = options(delivery, scheme);
         } catch (RuntimeException e) {
-            // no key for the actor (deleted?): no later attempt can do better
+            // no key for the actor (deleted?), or signed with another key: no later attempt can do better
             return Outcome.permanentError("Cannot sign as " + delivery.keyId() + ": " + e.getMessage());
         }
         try {
@@ -127,8 +127,14 @@ public class DeliverySender {
                 .withHeader("Accept", ActivityPubMediaTypes.ACCEPT)
                 .withHeader("User-Agent", userAgent())
                 .withHeader("Date", date);
-        for (Map.Entry<String, String> h : signer.sign("POST", delivery.inbox(), existing, delivery.body(),
-                Optional.of(KeyIds.clientName(delivery.keyId())), scheme).headers().entrySet()) {
+        Map<String, String> signed = signer.sign("POST", delivery.inbox(), existing, delivery.body(),
+                Optional.of(KeyIds.clientName(delivery.keyId())), scheme).headers();
+        // only the actor's own key may sign its deliveries, never a fallback key under another id
+        Optional<String> used = KeyIds.signedKeyId(signed);
+        if (!used.filter(delivery.keyId()::equals).isPresent()) {
+            throw new IllegalStateException("signed with key " + used.orElse("<none>") + " instead of the actor's");
+        }
+        for (Map.Entry<String, String> h : signed.entrySet()) {
             if (!h.getKey().equalsIgnoreCase("Host")) {
                 options = options.withHeader(h.getKey(), h.getValue());
             }

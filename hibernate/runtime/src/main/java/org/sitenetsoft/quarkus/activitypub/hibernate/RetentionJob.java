@@ -16,7 +16,8 @@ import io.quarkus.scheduler.Scheduled;
 /**
  * Daily at 03:00: deletes the remote objects kept longer than {@code quarkus.activitypub.remote-objects.retention}
  * and the inbound activity ids seen longer ago than {@code quarkus.activitypub.dedup.retention}. A retention of
- * {@code 0} disables that part.
+ * {@code 0} disables that part. Finished deliveries are purged by the core {@code DeliveryRetentionJob}
+ * ({@code quarkus.activitypub.delivery.retention}) through {@code DeliveryStore.purge}, not here.
  */
 @ApplicationScoped
 public class RetentionJob {

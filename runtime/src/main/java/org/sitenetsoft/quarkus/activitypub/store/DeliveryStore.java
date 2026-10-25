@@ -3,6 +3,7 @@ package org.sitenetsoft.quarkus.activitypub.store;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The delivery queue and per-host health. Blocking twin of {@link ReactiveDeliveryStore}; provide either.
@@ -39,4 +40,14 @@ public interface DeliveryStore {
 
     /** Creation time of the oldest pending delivery. */
     Optional<Instant> oldestPending();
+
+    /**
+     * The earliest {@code nextAttempt} of the {@link DeliveryState#PENDING} deliveries that are due
+     * ({@code nextAttempt <= now}), claimed or not: how far behind the delivery job is. Deliveries waiting for their
+     * backoff are not due and do not count.
+     */
+    Optional<Instant> oldestDue(Instant now);
+
+    /** Deletes the deliveries in one of {@code states} created before {@code before}; returns how many. */
+    int purge(Set<DeliveryState> states, Instant before);
 }

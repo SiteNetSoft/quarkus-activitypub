@@ -6,8 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,7 +22,11 @@ import org.sitenetsoft.activitystreams.ASObject;
 import org.sitenetsoft.activitystreams.Note;
 import org.sitenetsoft.activitystreams.ObjectOrLink;
 import org.sitenetsoft.quarkus.activitypub.hibernate.RetentionJob;
+import org.sitenetsoft.quarkus.activitypub.hibernate.entity.ApDelivery;
 import org.sitenetsoft.quarkus.activitypub.hibernate.entity.ApSeenActivity;
+import org.sitenetsoft.quarkus.activitypub.outbound.DeliveryRetentionJob;
+import org.sitenetsoft.quarkus.activitypub.store.Delivery;
+import org.sitenetsoft.quarkus.activitypub.store.DeliveryState;
 import org.sitenetsoft.quarkus.activitypub.store.Stores;
 
 import io.quarkus.narayana.jta.QuarkusTransaction;
@@ -40,6 +46,9 @@ public class RetentionJobTest {
 
     @Inject
     RetentionJob job;
+
+    @Inject
+    DeliveryRetentionJob deliveryJob;
 
     private static URI remote(String kind) {
         return URI.create("https://remote.example/" + kind + "/" + UUID.randomUUID());
@@ -99,5 +108,34 @@ public class RetentionJobTest {
         assertTrue(stores.objects().find(oldLocal).isPresent(), "local objects never expire");
         assertNull(seenRow(oldSeen), "seen id older than 7 days");
         assertNotNull(seenRow(freshSeen));
+    }
+
+    private Delivery delivery(Duration age, DeliveryState state) {
+        return Delivery.create(remote("inbox"), local("activities"), "{\"type\":\"Create\"}".getBytes(StandardCharsets.UTF_8),
+                LoopbackTests.BASE + "/users/alice#main-key", Instant.now().minus(age)).withState(state);
+    }
+
+    private ApDelivery deliveryRow(Delivery d) {
+        return QuarkusTransaction.requiringNew().call(() -> em.find(ApDelivery.class, d.id()));
+    }
+
+    @Test
+    void finishedDeliveriesOlderThanSevenDaysAreDeleted() {
+        Delivery delivered = delivery(Duration.ofDays(8), DeliveryState.DELIVERED);
+        Delivery failed = delivery(Duration.ofDays(8), DeliveryState.FAILED);
+        Delivery givenUp = delivery(Duration.ofDays(8), DeliveryState.GIVEN_UP);
+        Delivery pending = delivery(Duration.ofDays(8), DeliveryState.PENDING);
+        Delivery recent = delivery(Duration.ofDays(6), DeliveryState.DELIVERED);
+        stores.deliveries().save(List.of(delivered, failed, givenUp, pending, recent));
+
+        assertEquals(3, deliveryJob.run());
+
+        assertNull(deliveryRow(delivered), "delivered row (and its body) older than 7 days");
+        assertNull(deliveryRow(failed));
+        assertNull(deliveryRow(givenUp));
+        assertNotNull(deliveryRow(pending), "pending deliveries are never purged");
+        assertNotNull(deliveryRow(recent));
+        QuarkusTransaction.requiringNew().run(() -> em.createQuery("delete from ApDelivery d where d.id = :id")
+                .setParameter("id", pending.id()).executeUpdate());
     }
 }

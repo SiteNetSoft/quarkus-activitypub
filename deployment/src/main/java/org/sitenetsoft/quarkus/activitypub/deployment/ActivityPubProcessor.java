@@ -1,8 +1,25 @@
 package org.sitenetsoft.quarkus.activitypub.deployment;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.jboss.logging.Logger;
+import org.sitenetsoft.activitystreams.ASLink;
+import org.sitenetsoft.activitystreams.ASObject;
+import org.sitenetsoft.activitystreams.ASTypes;
+import org.sitenetsoft.activitystreams.Endpoints;
+import org.sitenetsoft.activitystreams.ObjectOrLink;
+import org.sitenetsoft.activitystreams.PublicKey;
+import org.sitenetsoft.activitystreams.json.ASObjectDeserializer;
+import org.sitenetsoft.activitystreams.json.FirstObjectOrLinkDeserializer;
+import org.sitenetsoft.activitystreams.json.ObjectOrLinkDeserializer;
+import org.sitenetsoft.activitystreams.json.ObjectOrLinkSerializer;
+import org.sitenetsoft.activitystreams.json.RootContextWriter;
+import org.sitenetsoft.activitystreams.json.SingleOrList;
+import org.sitenetsoft.activitystreams.json.SingleOrScalar;
 import org.sitenetsoft.quarkus.activitypub.ActivityPub;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubBuildTimeConfig;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubJson;
@@ -12,6 +29,7 @@ import org.sitenetsoft.quarkus.activitypub.ActivityPubUrls;
 import org.sitenetsoft.quarkus.activitypub.ReactiveActivityPub;
 import org.sitenetsoft.quarkus.activitypub.actor.ActorDocuments;
 import org.sitenetsoft.quarkus.activitypub.actor.InstanceActor;
+import org.sitenetsoft.quarkus.activitypub.actor.LocalActor;
 import org.sitenetsoft.quarkus.activitypub.actor.LocalActors;
 import org.sitenetsoft.quarkus.activitypub.client.ActivityPubClient;
 import org.sitenetsoft.quarkus.activitypub.client.ActivityPubClientImpl;
@@ -44,6 +62,7 @@ import org.sitenetsoft.quarkus.activitypub.outbound.ActivityPubImpl;
 import org.sitenetsoft.quarkus.activitypub.outbound.Clocks;
 import org.sitenetsoft.quarkus.activitypub.outbound.DeliveryExecutor;
 import org.sitenetsoft.quarkus.activitypub.outbound.DeliveryMetrics;
+import org.sitenetsoft.quarkus.activitypub.outbound.DeliveryRetentionJob;
 import org.sitenetsoft.quarkus.activitypub.outbound.DeliveryScheduler;
 import org.sitenetsoft.quarkus.activitypub.outbound.DeliverySender;
 import org.sitenetsoft.quarkus.activitypub.outbound.OutboxDeliveryExecutor;
@@ -56,6 +75,10 @@ import org.sitenetsoft.quarkus.activitypub.server.FetchAuthorization;
 import org.sitenetsoft.quarkus.activitypub.server.ObjectHandler;
 import org.sitenetsoft.quarkus.activitypub.server.SignerIdentity;
 import org.sitenetsoft.quarkus.activitypub.store.ActorStore;
+import org.sitenetsoft.quarkus.activitypub.store.Delivery;
+import org.sitenetsoft.quarkus.activitypub.store.FollowRelation;
+import org.sitenetsoft.quarkus.activitypub.store.HostHealth;
+import org.sitenetsoft.quarkus.activitypub.store.Page;
 import org.sitenetsoft.quarkus.activitypub.store.DeliveryStore;
 import org.sitenetsoft.quarkus.activitypub.store.FollowerStore;
 import org.sitenetsoft.quarkus.activitypub.store.ObjectStore;
@@ -83,6 +106,7 @@ import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.builditem.AdditionalIndexedClassesBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.vertx.http.deployment.HttpRootPathBuildItem;
 import io.quarkus.vertx.http.deployment.RouteBuildItem;
 
@@ -144,7 +168,7 @@ class ActivityPubProcessor {
         beans.produce(AdditionalBeanBuildItem.builder()
                 .addBeanClasses(ActivityPubImpl.class, ReactiveActivityPubImpl.class, RecipientResolver.class,
                         OutboxDeliveryExecutor.class, DeliveryScheduler.class, DeliverySender.class,
-                        DeliveryMetrics.class, Clocks.class)
+                        DeliveryMetrics.class, Clocks.class, DeliveryRetentionJob.class)
                 .setUnremovable()
                 .build());
         indexed.produce(new AdditionalIndexedClassesBuildItem(ActivityPubWebFingerResolver.class.getName()));
@@ -239,6 +263,29 @@ class ActivityPubProcessor {
             }
         }
         return Optional.of(template.substring(0, first) + ":" + param + template.substring(after));
+    }
+
+    /**
+     * Jackson reads and writes these by reflection: every Activity Streams class of {@code ASTypes.defaults()}, the
+     * value types around them, the custom (de)serializers (and their nested classes), and the store records the Dev UI
+     * and applications serialise. Hibernate entities are registered by Hibernate ORM.
+     */
+    @BuildStep
+    ReflectiveClassBuildItem jacksonReflection() {
+        Set<Class<?>> classes = new LinkedHashSet<>(ASTypes.defaults().classes());
+        classes.addAll(List.of(ASObject.class, ASLink.class, ObjectOrLink.class, ObjectOrLink.Ref.class,
+                ObjectOrLink.Embedded.class, Endpoints.class, PublicKey.class, LocalActor.class, Delivery.class,
+                HostHealth.class, Page.class, FollowRelation.class, InboxLog.InboxEntry.class));
+        List<Class<?>> json = List.of(ASObjectDeserializer.class, FirstObjectOrLinkDeserializer.class,
+                ObjectOrLinkDeserializer.class, ObjectOrLinkSerializer.class, RootContextWriter.class,
+                SingleOrList.class, SingleOrScalar.class);
+        for (Class<?> c : json) {
+            classes.add(c);
+            classes.addAll(List.of(c.getDeclaredClasses()));
+        }
+        classes.addAll(List.of(LocalActor.class.getDeclaredClasses()));
+        return ReflectiveClassBuildItem.builder(new ArrayList<>(classes).toArray(Class<?>[]::new))
+                .constructors().methods().fields().build();
     }
 
     @BuildStep

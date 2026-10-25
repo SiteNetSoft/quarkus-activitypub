@@ -278,20 +278,46 @@ public class InboxSideEffectsTest {
     }
 
     @Test
-    void deleteOfUnknownActorDoesNotFetch() {
+    void deleteOfUnknownActorDoesNotFetch() throws InterruptedException {
+        // never seen before: no cached key, no follow relationship, nothing held
         FakeActor leo = fake.actor("leo");
-        // the first signed request resolves leo's key; later ones use the key cache
-        var warmUp = delete(leo, InboxFixtures.idOf(leo, "objects"));
-        post(leo, ALICE_INBOX, warmUp);
-        await().atMost(WAIT).until(() -> events.find("any", warmUp.id()).isPresent());
         fake.clear();
-        var unknownObject = delete(leo, InboxFixtures.idOf(leo, "objects"));
         var self = delete(leo, leo.id());
-        post(leo, ALICE_INBOX, unknownObject);
         post(leo, InboxFixtures.SHARED_INBOX, self);
-        await().atMost(WAIT).until(() -> events.find("any", unknownObject.id()).isPresent()
-                && events.find("any", self.id()).isPresent());
-        assertEquals(List.of(), fake.received());
+        post(leo, ALICE_INBOX, delete(leo, leo.id()));
+        Thread.sleep(500);
+        assertEquals(0, fake.requestCount("/users/leo"), "the deleted actor's key is not fetched");
+        assertTrue(events.find("any", self.id()).isEmpty(), "dropped, not processed");
+        assertTrue(inboxLog.entries().stream()
+                .anyMatch(e -> leo.id().equals(e.actor()) && InboxLog.IGNORED.equals(e.result())));
+
+        // any other Delete is verified (key fetched) but an unknown object is never fetched
+        var unknownObject = delete(leo, InboxFixtures.idOf(leo, "objects"));
+        post(leo, ALICE_INBOX, unknownObject);
+        await().atMost(WAIT).until(() -> events.find("any", unknownObject.id()).isPresent());
+        assertEquals(0, fake.requestCount("/objects"));
+    }
+
+    @Test
+    void deleteOfKnownActorIsVerified() {
+        FakeActor max = fake.actor("max");
+        FakeActor forger = fake.actor("forger");
+        becomeFollower(max);
+        // signed by someone else: a known actor's self-Delete goes through verification and is refused
+        var forged = delete(max, max.id());
+        assertEquals(401, InboxFixtures.send(forger, InboxFixtures.SHARED_INBOX, json(forged),
+                InboxFixtures.ACTIVITY_JSON).statusCode());
+        assertTrue(follows(ALICE, max));
+        post(max, InboxFixtures.SHARED_INBOX, delete(max, max.id()));
+        await().atMost(WAIT).until(() -> !follows(ALICE, max));
+    }
+
+    private static byte[] json(org.sitenetsoft.activitystreams.ASObject activity) {
+        try {
+            return org.sitenetsoft.activitystreams.ASJson.mapper().writeValueAsBytes(activity);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @Test

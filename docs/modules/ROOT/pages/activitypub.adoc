@@ -29,7 +29,8 @@ Registered at the server root from the `quarkus.activitypub.paths.*` templates, 
 |`GET /users/{username}` |The actor document for `application/activity+json` or `application/ld+json; profile=...`;
 otherwise `302` to the actor's `url`, else `406`
 |`POST /users/{username}/inbox`, `POST /inbox` |HTTP signature verified (`401` otherwise), `202` and processed on a
-virtual thread; duplicates and blocked domains also get `202`
+virtual thread of its own, at most `inbox.max-concurrency` at a time (more wait for a slot); duplicates, blocked
+domains and self-deletes of actors never seen also get `202` (the last two without verifying, so no key is fetched)
 |`GET /users/{username}/outbox` |`OrderedCollection` of public activities, pages with `?page=N`
 |`GET /users/{username}/followers`, `/following` |By `collections.followers-visibility`: `public`, `count-only`, `hidden`
 |`GET /objects/{id}`, `/activities/{id}` |Stored local objects; `410` for a tombstone; non-public objects only to signed
@@ -74,7 +75,10 @@ sends them signed (Cavage by default; a `401` triggers one RFC 9421 retry, remem
 
 After five consecutive failures a host is paused; a host failing for `delivery.dead-after` gets new deliveries given up
 at once. `DeliveryCompleted` and `DeliveryFailed` CDI events report each outcome. With SmallRye Health, readiness turns
-DOWN when the oldest pending delivery is older than `health.max-backlog-age`.
+DOWN when a due delivery (its next attempt reached) has waited longer than `health.max-backlog-age`: the delivery job
+is not keeping up. Deliveries waiting for their backoff (an unreachable remote) do not count. Finished deliveries are
+deleted daily once older than `delivery.retention` (default `7d`, `0` keeps them). Nothing is delivered to a blocked
+domain: blocked followers are skipped, blocked recipients and queued deliveries end `FAILED` with `blocked domain`.
 
 == Inbox
 
@@ -98,7 +102,9 @@ addressed to a local actor or replying to a local object) and `Delete`. Replace 
 
 `ActivityPubClient.fetch(uri)`, `fetchActor(uri)` and `resolveActor("bob@mastodon.example")` (WebFinger, then fetch)
 go through safe-fetch, are signed by the instance actor and cached (`fetch.cache-ttl`, `fetch.actor-cache-ttl`). A
-document whose `id` is on another host than the URL it came from is rejected. `ReactiveActivityPubClient` is the Mutiny
+document whose `id` is on another host than the URL it came from is rejected, and blocked domains are never fetched
+(`BLOCKED`). Signature keys are fetched at most once per `fetch.key-refetch-interval` and unresolvable key ids are
+remembered for `fetch.negative-cache-ttl`, so bogus signatures cannot make the server send requests. `ReactiveActivityPubClient` is the Mutiny
 twin.
 
 == Stores
@@ -158,7 +164,7 @@ All `quarkus.activitypub.*`.
 |`instance-actor.enabled` |`true` |Create and serve the instance actor
 |`instance-actor.username` |`instance` |Username of the instance actor
 |`authorized-fetch` |`false` |Require a valid HTTP signature on every ActivityPub GET
-|`blocked-domains` |none |Domains whose activities are dropped, matched by suffix
+|`blocked-domains` |none |Domains whose activities are dropped and that are never delivered to or fetched from, matched by suffix
 |`collections.page-size` |`20` |Items per collection page
 |`collections.followers-visibility` |`public` |`public`, `count-only` or `hidden`
 |`cache-control.actor` |`max-age=300` |`Cache-Control` of actor documents
@@ -166,13 +172,17 @@ All `quarkus.activitypub.*`.
 |`fetch.max-size` |`1M` |Larger documents are rejected
 |`fetch.cache-ttl` |`10m` |How long fetched objects are cached
 |`fetch.actor-cache-ttl` |`1h` |How long fetched actors are cached
+|`fetch.key-refetch-interval` |`60s` |A signature key is fetched again (key rotation) at most once per interval
+|`fetch.negative-cache-ttl` |`5m` |How long a key id that did not resolve is not fetched again
 |`delivery.poll-interval` |`5s` |How often the delivery job polls
 |`delivery.batch-size` |`50` |Deliveries claimed per poll
 |`delivery.parallelism` |`8` |Concurrent sends per poll
 |`delivery.max-attempts` |`8` |Attempts before a delivery is given up
 |`delivery.signature-scheme` |`cavage` |`cavage` or `rfc9421`
 |`delivery.dead-after` |`30d` |A host failing this long gets new deliveries given up immediately
-|`health.max-backlog-age` |`1h` |Readiness DOWN when the oldest pending delivery is older
+|`delivery.retention` |`7d` |Finished deliveries older than this are deleted daily; `0` keeps them
+|`inbox.max-concurrency` |`64` |Accepted activities processed at once, one virtual thread each
+|`health.max-backlog-age` |`1h` |Readiness DOWN when a due delivery has waited longer (backoff does not count)
 |`user-agent` |`quarkus-activitypub/{version} (+{base-url})` |`User-Agent` of outbound requests
 |`dedup.retention` |`7d` |How long inbound activity ids are remembered
 |`remote-objects.retention` |`90d` |How long kept remote objects live; `0` disables expiry

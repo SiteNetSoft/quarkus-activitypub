@@ -22,7 +22,8 @@
     and `quarkus.activitypub.hibernate.persistence-unit=pu` (fixed at build time).
   - `RetentionJob` (daily 03:00) deletes remote objects after `quarkus.activitypub.remote-objects.retention` (90d)
     and de-duplication rows after `quarkus.activitypub.dedup.retention` (7d). `0` disables either. It needs the
-    scheduler: `quarkus.scheduler.enabled=false` also stops retention and delivery.
+    scheduler: `quarkus.scheduler.enabled=false` also stops retention and delivery. Finished `ap_delivery` rows go
+    after `quarkus.activitypub.delivery.retention` (7d), purged by the core `DeliveryRetentionJob`.
   - Delivery is single-node: a claimed delivery is reserved for 60 s. Run the delivery poll on one node, or a slow
     run can send a delivery twice.
   - An inbox handler of your own (`InboundActivityHandler`) must do remote fetches in `prepare` (outside the

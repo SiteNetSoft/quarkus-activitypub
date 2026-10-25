@@ -5,6 +5,7 @@ import static org.sitenetsoft.quarkus.activitypub.store.Bridge.offload;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import io.smallrye.mutiny.Uni;
 
@@ -60,5 +61,15 @@ final class ReactiveDeliveryStoreAdapter implements ReactiveDeliveryStore {
     @Override
     public Uni<Optional<Instant>> oldestPending() {
         return offload(d::oldestPending);
+    }
+
+    @Override
+    public Uni<Optional<Instant>> oldestDue(Instant now) {
+        return offload(() -> d.oldestDue(now));
+    }
+
+    @Override
+    public Uni<Integer> purge(Set<DeliveryState> states, Instant before) {
+        return offload(() -> d.purge(states, before));
     }
 }

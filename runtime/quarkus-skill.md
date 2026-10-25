@@ -40,8 +40,13 @@
     instance set `%dev.quarkus.safe-fetch.https-only=false` and `%dev.quarkus.safe-fetch.allow-private-addresses=true`
     (and `%test.`); never in prod.
   - **The scheduler is needed.** Delivery is a Quarkus Scheduler job (`delivery.poll-interval`, default `5s`):
-    `quarkus.scheduler.enabled=false` stops all delivery (and the Hibernate retention job). Deliveries are not sent
-    synchronously by `create()`; tests await them.
+    `quarkus.scheduler.enabled=false` stops all delivery (and the retention jobs). Deliveries are not sent
+    synchronously by `create()`; tests await them. Finished deliveries are deleted daily after
+    `quarkus.activitypub.delivery.retention` (`7d`; `0` keeps them), so do not rely on old `DELIVERED` rows.
+  - Inbox processing runs on virtual threads, at most `quarkus.activitypub.inbox.max-concurrency` (64) at a time:
+    `@Inbound` observers may block, but a slow one delays the queue.
+  - `blocked-domains` also stops outbound traffic: no deliveries (`FAILED`, `blocked domain`), no fetches
+    (`ActivityPubException` `BLOCKED`), no key fetches.
   - The in-memory stores lose actors, keys and followers on restart and log a WARN in prod; use the Hibernate module
     (or your own stores) for anything that federates for real.
   - `ActivityPub` and `ActivityPubClient` block: never call them on the event loop (use the reactive twins there).

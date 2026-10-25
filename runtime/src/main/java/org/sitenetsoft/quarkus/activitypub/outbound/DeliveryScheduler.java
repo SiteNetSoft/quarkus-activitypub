@@ -21,6 +21,7 @@ import jakarta.inject.Inject;
 
 import org.jboss.logging.Logger;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubConfig;
+import org.sitenetsoft.quarkus.activitypub.inbox.DomainPolicy;
 import org.sitenetsoft.quarkus.activitypub.outbound.DeliveryEvents.DeliveryCompleted;
 import org.sitenetsoft.quarkus.activitypub.outbound.DeliveryEvents.DeliveryFailed;
 import org.sitenetsoft.quarkus.activitypub.outbound.DeliverySender.Outcome;
@@ -39,7 +40,9 @@ import io.quarkus.scheduler.Scheduled;
  * <li>2xx: {@code DELIVERED};</li>
  * <li>408, 429, 5xx, transport errors, and 401/403 that double knocking did not fix: retried after
  * {@link Backoff#forAttempt(int)} of the attempt count, until {@code max-attempts}, then {@code GIVEN_UP};</li>
- * <li>any other status, or a blocked address: {@code FAILED}, not retried.</li>
+ * <li>any other status, or a blocked address: {@code FAILED}, not retried;</li>
+ * <li>an inbox on a host blocked by {@link DomainPolicy} (blocked after the delivery was queued): {@code FAILED}
+ * without an attempt.</li>
  * </ul>
  * Retryable outcomes count as host failures, any answer that is not retryable as a host success. After
  * {@value #PAUSE_AFTER_FAILURES} consecutive failures a host is paused for
@@ -74,6 +77,9 @@ public class DeliveryScheduler {
     @Inject
     Event<DeliveryFailed> failed;
 
+    @Inject
+    DomainPolicy domains;
+
     private final ExecutorService threads = Executors.newVirtualThreadPerTaskExecutor();
 
     /** How long a host with {@code consecutiveFailures} (at least {@value #PAUSE_AFTER_FAILURES}) is paused. */
@@ -102,6 +108,15 @@ public class DeliveryScheduler {
         Semaphore permits = new Semaphore(config.delivery().parallelism());
         List<Future<?>> running = new ArrayList<>(due.size());
         for (Delivery d : due) {
+            if (d.host() != null && domains.allow(d.host()) == DomainPolicy.Decision.BLOCK) {
+                Delivery done = d.withState(DeliveryState.FAILED)
+                        .withLastError(Optional.of(RecipientResolver.BLOCKED_DOMAIN));
+                store.update(done);
+                LOG.debugf("Delivery %s to %s failed: %s", d.id(), d.inbox(), RecipientResolver.BLOCKED_DOMAIN);
+                metrics.attempt("failed");
+                fire(failed, new DeliveryFailed(done, RecipientResolver.BLOCKED_DOMAIN, false));
+                continue;
+            }
             Optional<Instant> paused = hosts.computeIfAbsent(d.host(), store::host).pausedUntil().filter(now::isBefore);
             if (paused.isPresent()) {
                 store.update(d.withNextAttempt(paused.get()));

@@ -45,7 +45,8 @@ processed again.
 **Retention.** `RetentionJob` deletes, daily at 03:00, remote objects kept longer than
 `quarkus.activitypub.remote-objects.retention` (default `90d`) and de-duplication rows older than
 `quarkus.activitypub.dedup.retention` (default `7d`). A retention of `0` disables that part. Local objects never
-expire.
+expire. Finished `ap_delivery` rows are deleted daily at 03:30 by the core `DeliveryRetentionJob` once older than
+`quarkus.activitypub.delivery.retention` (default `7d`).
 
 **Delivery runs on one node.** The poll claims due deliveries with `SELECT … FOR UPDATE SKIP LOCKED` (where the database
 supports it) and stamps `claimed_at`. A claim is honoured for 60 seconds or until the attempt is recorded. If a run
