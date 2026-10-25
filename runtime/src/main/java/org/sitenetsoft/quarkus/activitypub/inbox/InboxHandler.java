@@ -36,7 +36,8 @@ import io.vertx.ext.web.RoutingContext;
  * or one that does not verify → {@code 401} ({@code WWW-Authenticate: Signature}); body over
  * {@code quarkus.http-signatures.verify.max-body-size} → {@code 413}; not an ActivityPub content type → {@code 415};
  * not a JSON object, or not an activity → {@code 400}; {@code actor} absent or not the signer → {@code 401}; actor's
- * host blocked by {@link DomainPolicy} → {@code 202}, dropped; {@code id} already seen → {@code 202}, dropped;
+ * host blocked by {@link DomainPolicy} → {@code 202}, dropped; {@code id} (on the actor's host; other ids are not
+ * deduplicated) already seen → {@code 202}, dropped;
  * otherwise {@code 202} and {@link InboxProcessor} takes over on a worker thread. Nothing here blocks the event loop.
  */
 @ApplicationScoped
@@ -148,7 +149,9 @@ public class InboxHandler implements BeanHandler.VariantHandler {
             accepted(ctx);
             return;
         }
-        if (activity.id() == null) {
+        // an id on another host is not the signer's to claim: deduplicating it would let the signer pre-empt the
+        // real activity of that host, so it is processed like an id-less one
+        if (activity.id() == null || !sameHost(activity.id(), actorId)) {
             accept(ctx, recipient, body, activity, result.keyId(), actorId);
             return;
         }
@@ -181,6 +184,10 @@ public class InboxHandler implements BeanHandler.VariantHandler {
         } catch (IOException | IllegalArgumentException e) {
             return Optional.empty();
         }
+    }
+
+    private static boolean sameHost(URI a, URI b) {
+        return a.getHost() != null && b.getHost() != null && a.getHost().equalsIgnoreCase(b.getHost());
     }
 
     private static void accepted(RoutingContext ctx) {

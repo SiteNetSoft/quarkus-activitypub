@@ -16,6 +16,7 @@ import org.sitenetsoft.activitystreams.Follow;
 import org.sitenetsoft.activitystreams.Note;
 import org.sitenetsoft.activitystreams.ObjectOrLink;
 import org.sitenetsoft.activitystreams.Undo;
+import org.sitenetsoft.activitystreams.Update;
 import org.sitenetsoft.httpsignatures.Scheme;
 import org.sitenetsoft.quarkus.activitypub.test.FakeActor;
 
@@ -75,6 +76,14 @@ final class InboxFixtures {
         create.actor(ObjectOrLink.of(from.id())).object(ObjectOrLink.of(object));
         create.to(object.to().toArray(ObjectOrLink[]::new));
         return create;
+    }
+
+    static Update update(FakeActor from, ASObject object) {
+        Update update = new Update();
+        update.id(idOf(from, "activities"));
+        update.actor(ObjectOrLink.of(from.id())).object(ObjectOrLink.of(object));
+        update.to(object.to().toArray(ObjectOrLink[]::new));
+        return update;
     }
 
     static Delete delete(FakeActor from, URI object) {

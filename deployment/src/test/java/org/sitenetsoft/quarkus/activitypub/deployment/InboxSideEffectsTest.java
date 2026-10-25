@@ -59,6 +59,8 @@ public class InboxSideEffectsTest {
             InboxFixtures.class, RecordingActivityPub.class, EventCollector.class);
 
     static final FakeFediverseServer fake = new FakeFediverseServer();
+    /** Another host (same loopback, named {@code localhost}). */
+    static final FakeFediverseServer other = new FakeFediverseServer("localhost");
     static final Duration WAIT = Duration.ofSeconds(10);
 
     /** {@code alice} accepts followers; {@code bob} approves them manually. */
@@ -134,11 +136,13 @@ public class InboxSideEffectsTest {
     @BeforeAll
     static void startFake() {
         fake.start();
+        other.start();
     }
 
     @AfterAll
     static void stopFake() {
         fake.stop();
+        other.stop();
     }
 
     private static void post(FakeActor from, URI inbox, org.sitenetsoft.activitystreams.Activity activity) {
@@ -352,5 +356,96 @@ public class InboxSideEffectsTest {
         assertTrue(registry.isResolvable());
         assertTrue(registry.get().counter("activitypub.inbox.received", "type", "Follow", "result", "duplicate")
                 .count() >= 1);
+    }
+
+    @Test
+    void createByReferenceIsFetchedFromActorsHost() {
+        FakeActor tess = fake.actor("tess");
+        Note note = tess.addObject(note(tess, ALICE));
+        var create = create(tess, note);
+        create.object(ObjectOrLink.of(note.id()));
+        post(tess, ALICE_INBOX, create);
+        await().atMost(WAIT).until(() -> stores.objects().find(note.id()).isPresent());
+    }
+
+    @Test
+    void createByReferenceToAnotherHostIsNotFetched() {
+        FakeActor uli = fake.actor("uli");
+        FakeActor victim = other.actor("victim");
+        Note elsewhere = victim.addObject(note(victim, ALICE));
+        other.clear();
+        var create = create(uli, elsewhere);
+        create.object(ObjectOrLink.of(elsewhere.id()));
+        post(uli, ALICE_INBOX, create);
+        await().atMost(WAIT).until(() -> events.find("create", create.id()).isPresent());
+        assertEquals(0, other.requestCount("/objects"));
+        assertEquals(List.of(), other.received());
+        assertTrue(stores.objects().find(elsewhere.id()).isEmpty());
+    }
+
+    @Test
+    void createAttributedToAnotherUserOnSameHostIgnored() {
+        FakeActor rae = fake.actor("rae");
+        FakeActor sam = fake.actor("sam");
+        Note note = note(rae, ALICE);
+        note.attributedTo(ObjectOrLink.of(sam.id()));
+        var create = create(rae, note);
+        post(rae, ALICE_INBOX, create);
+        await().atMost(WAIT).until(() -> events.find("create", create.id()).isPresent());
+        assertTrue(stores.objects().find(note.id()).isEmpty());
+    }
+
+    @Test
+    void updateOfObjectOwnedByAnotherUserIgnored() {
+        FakeActor rae = fake.actor("rae");
+        FakeActor sam = fake.actor("sam");
+        Note note = note(sam, ALICE);
+        post(sam, ALICE_INBOX, create(sam, note));
+        await().atMost(WAIT).until(() -> stores.objects().find(note.id()).isPresent());
+        Note forged = (Note) note.copy();
+        forged.attributedTo(ObjectOrLink.of(rae.id()));
+        forged.content("<p>forged</p>");
+        var update = InboxFixtures.update(rae, forged);
+        post(rae, ALICE_INBOX, update);
+        await().atMost(WAIT).until(() -> events.find("any", update.id()).isPresent());
+        assertEquals("<p>hello</p>", stores.objects().find(note.id()).orElseThrow().content());
+    }
+
+    @Test
+    void updateByOwnerApplies() {
+        FakeActor sam = fake.actor("sam");
+        Note note = note(sam, ALICE);
+        post(sam, ALICE_INBOX, create(sam, note));
+        await().atMost(WAIT).until(() -> stores.objects().find(note.id()).isPresent());
+        Note edited = (Note) note.copy();
+        edited.content("<p>edited</p>");
+        post(sam, ALICE_INBOX, InboxFixtures.update(sam, edited));
+        await().atMost(WAIT).until(() -> "<p>edited</p>".equals(stores.objects().find(note.id()).orElseThrow().content()));
+    }
+
+    @Test
+    void deleteOfObjectOwnedByAnotherUserIgnored() {
+        FakeActor rae = fake.actor("rae");
+        FakeActor sam = fake.actor("sam");
+        Note note = note(sam, ALICE);
+        post(sam, ALICE_INBOX, create(sam, note));
+        await().atMost(WAIT).until(() -> stores.objects().find(note.id()).isPresent());
+        var delete = delete(rae, note.id());
+        post(rae, ALICE_INBOX, delete);
+        await().atMost(WAIT).until(() -> events.find("any", delete.id()).isPresent());
+        assertInstanceOf(Note.class, stores.objects().find(note.id()).orElseThrow());
+    }
+
+    @Test
+    void activityIdOnAnotherHostIsNotDeduplicated() {
+        FakeActor vera = fake.actor("vera");
+        FakeActor dave = other.actor("dave");
+        Follow real = follow(dave, ALICE);
+        Follow squatter = follow(vera, ALICE);
+        squatter.id(real.id());
+        post(vera, ALICE_INBOX, squatter);
+        await().atMost(WAIT).until(() -> follows(ALICE, vera));
+        post(dave, ALICE_INBOX, real);
+        await().atMost(WAIT).until(() -> follows(ALICE, dave));
     }
 }

@@ -18,8 +18,8 @@ import org.sitenetsoft.quarkus.activitypub.store.Stores;
 
 /**
  * {@code Delete}, never fetching anything: an actor deleting itself loses its follow relationships, its kept objects
- * and its cached document; an object we hold on the actor's own host becomes a {@code Tombstone}; anything else is
- * ignored.
+ * and its cached document; an object we hold on the actor's own host and attributed to the actor becomes a
+ * {@code Tombstone}; anything else is ignored.
  */
 @Priority(0)
 @ApplicationScoped
@@ -58,6 +58,10 @@ public class DeleteHandler implements InboundActivityHandler<Delete> {
         }
         Optional<ASObject> held = stores.objects().find(id);
         if (held.isPresent() && !(held.get() instanceof Tombstone)) {
+            if (!CreateUpdateHandler.attributedTo(held.get(), actor)) {
+                LOG.debugf("Delete %s by %s of %s, held as another actor's, ignored", delete.id(), actor, id);
+                return;
+            }
             stores.objects().tombstone(id);
             remoteCache.invalidate(id);
         }
