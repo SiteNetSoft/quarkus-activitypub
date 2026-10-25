@@ -35,6 +35,7 @@ import org.sitenetsoft.quarkus.activitypub.store.FollowerStore;
 import org.sitenetsoft.quarkus.activitypub.store.HostHealth;
 import org.sitenetsoft.quarkus.activitypub.store.ObjectStore;
 import org.sitenetsoft.quarkus.activitypub.store.Page;
+import org.sitenetsoft.quarkus.activitypub.store.TransactionRunner;
 
 /**
  * Behaviour every store implementation must have. Each test uses fresh random ids, so implementations may share state
@@ -51,6 +52,9 @@ public abstract class StoreContractTest {
     protected abstract FollowerStore followers();
 
     protected abstract DeliveryStore deliveries();
+
+    /** The runner the stores join; the in-memory one runs the work inline. */
+    protected abstract TransactionRunner transactions();
 
     private static String unique() {
         return UUID.randomUUID().toString().replace("-", "");
@@ -286,6 +290,105 @@ public abstract class StoreContractTest {
                 Optional.empty())), followers().follower(me, them));
         followers().remove(me, them);
         assertEquals(Optional.empty(), followers().follower(me, them));
+    }
+
+    // Within one transaction a write is visible to the reads and writes after it (a store must not leave stale
+    // state behind, e.g. cached entities that a bulk delete bypassed).
+
+    @Test
+    public void removeThenReAddFollowerInOneTransaction() {
+        URI me = local("users/" + unique());
+        URI them = remote("users/" + unique());
+        followers().add(me, them, remote("inbox"), FollowState.ACCEPTED, null);
+        transactions().inTransaction(() -> {
+            followers().follower(me, them).orElseThrow();
+            followers().remove(me, them);
+            followers().add(me, them, remote("inbox2"), FollowState.PENDING, null);
+            followers().removeFollowing(me, them);
+            followers().addFollowing(me, them, FollowState.PENDING, null);
+            followers().removeFollowing(me, them);
+            followers().addFollowing(me, them, FollowState.ACCEPTED, null);
+        });
+        assertEquals(Optional.of(new FollowRelation(them, Optional.of(remote("inbox2")), FollowState.PENDING,
+                Optional.empty())), followers().follower(me, them));
+        assertEquals(Optional.of(FollowState.ACCEPTED), followers().followingState(me, them));
+    }
+
+    @Test
+    public void removeThenReadFollowerInOneTransaction() {
+        URI me = local("users/" + unique());
+        URI them = remote("users/" + unique());
+        followers().add(me, them, remote("inbox"), FollowState.ACCEPTED, null);
+        followers().addFollowing(me, them, FollowState.ACCEPTED, null);
+        transactions().inTransaction(() -> {
+            followers().follower(me, them).orElseThrow();
+            followers().followingRelation(me, them).orElseThrow();
+            followers().remove(me, them);
+            followers().removeFollowing(me, them);
+            assertEquals(Optional.empty(), followers().follower(me, them));
+            assertEquals(Optional.empty(), followers().followingRelation(me, them));
+            assertEquals(0, followers().followerCount(me));
+        });
+    }
+
+    @Test
+    public void removeAllThenFollowerInOneTransaction() {
+        URI me = local("users/" + unique());
+        URI gone = remote("users/" + unique());
+        followers().add(me, gone, remote("inbox"), FollowState.ACCEPTED, null);
+        followers().addFollowing(me, gone, FollowState.ACCEPTED, null);
+        transactions().inTransaction(() -> {
+            followers().follower(me, gone).orElseThrow();
+            followers().followingRelation(me, gone).orElseThrow();
+            followers().removeAll(gone);
+            assertEquals(Optional.empty(), followers().follower(me, gone));
+            assertEquals(Optional.empty(), followers().followingRelation(me, gone));
+            followers().add(me, gone, remote("inbox"), FollowState.PENDING, null);
+        });
+        assertEquals(Optional.of(FollowState.PENDING), followers().follower(me, gone).map(FollowRelation::state));
+    }
+
+    @Test
+    public void forgetSeenThenMarkSeenInOneTransaction() {
+        URI activity = remote("activities/" + unique());
+        transactions().inTransaction(() -> {
+            assertTrue(objects().markSeen(activity, Duration.ofDays(7)));
+            objects().forgetSeen(activity);
+            assertTrue(objects().markSeen(activity, Duration.ofDays(7)), "forgotten within the transaction");
+            assertFalse(objects().markSeen(activity, Duration.ofDays(7)));
+        });
+        assertFalse(objects().markSeen(activity, Duration.ofDays(7)));
+    }
+
+    @Test
+    public void deleteActorThenFindInOneTransaction() {
+        String username = "u" + unique();
+        LocalActor actor = actor(username, "Gone");
+        actors().save(actor, KEYS);
+        transactions().inTransaction(() -> {
+            actors().findById(actor.id()).orElseThrow();
+            actors().delete(actor.id());
+            assertEquals(Optional.empty(), actors().findById(actor.id()));
+            assertEquals(Optional.empty(), actors().keyPair(actor.id()));
+            assertEquals(Optional.empty(), actors().findByUsername(username));
+            actors().save(actor(username, "Back"), KEYS);
+        });
+        assertEquals(Optional.of("Back"), actors().findByUsername(username).orElseThrow().name());
+    }
+
+    @Test
+    public void deleteByActorThenFindInOneTransaction() {
+        URI author = remote("users/" + unique());
+        URI note = remote("notes/" + unique());
+        objects().putRemote(new Note().id(note).attributedTo(ObjectOrLink.of(author)), remote("inbox"));
+        transactions().inTransaction(() -> {
+            objects().find(note).orElseThrow();
+            objects().deleteByActor(author);
+            assertEquals(Optional.empty(), objects().find(note));
+            objects().putRemote(new Note().id(note).attributedTo(ObjectOrLink.of(author)).content("again"),
+                    remote("inbox"));
+        });
+        assertEquals("again", objects().find(note).orElseThrow().content());
     }
 
     private static Delivery delivery(Instant now) {

@@ -56,19 +56,20 @@ public class HibernateFollowerStore implements FollowerStore {
 
     @Override
     public void remove(URI local, URI remote) {
-        QuarkusTransaction.joiningExisting().run(() -> em()
-                .createQuery("delete from ApFollower f where f.local = :local and f.remote = :remote")
-                .setParameter("local", local.toString()).setParameter("remote", remote.toString()).executeUpdate());
+        QuarkusTransaction.joiningExisting()
+                .run(() -> removeIfPresent(ApFollower.class, new FollowKey(local.toString(), remote.toString())));
     }
 
     @Override
     public void removeAll(URI remote) {
         QuarkusTransaction.joiningExisting().run(() -> {
+            // entity removes, not bulk deletes: rows read earlier in the caller's transaction must not stay cached
             String id = remote.toString();
-            em().createQuery("delete from ApFollower f where f.remote = :remote").setParameter("remote", id)
-                    .executeUpdate();
-            em().createQuery("delete from ApFollowing f where f.remote = :remote").setParameter("remote", id)
-                    .executeUpdate();
+            em().createQuery("from ApFollower f where f.remote = :remote", ApFollower.class).setParameter("remote", id)
+                    .getResultList().forEach(em()::remove);
+            em().createQuery("from ApFollowing f where f.remote = :remote", ApFollowing.class).setParameter("remote", id)
+                    .getResultList().forEach(em()::remove);
+            em().flush();
         });
     }
 
@@ -110,9 +111,8 @@ public class HibernateFollowerStore implements FollowerStore {
 
     @Override
     public void removeFollowing(URI local, URI remote) {
-        QuarkusTransaction.joiningExisting().run(() -> em()
-                .createQuery("delete from ApFollowing f where f.local = :local and f.remote = :remote")
-                .setParameter("local", local.toString()).setParameter("remote", remote.toString()).executeUpdate());
+        QuarkusTransaction.joiningExisting()
+                .run(() -> removeIfPresent(ApFollowing.class, new FollowKey(local.toString(), remote.toString())));
     }
 
     @Override
@@ -143,6 +143,14 @@ public class HibernateFollowerStore implements FollowerStore {
         return QuarkusTransaction.joiningExisting().call(() -> Optional
                 .ofNullable(em().find(ApFollowing.class, new FollowKey(local.toString(), remote.toString())))
                 .map(f -> new FollowRelation(remote, Optional.empty(), f.getState(), uri(f.getFollowActivityId()))));
+    }
+
+    private void removeIfPresent(Class<?> entity, FollowKey key) {
+        Object row = em().find(entity, key);
+        if (row != null) {
+            em().remove(row);
+            em().flush(); // deletes run before inserts: a re-add of the same key in this transaction must follow it
+        }
     }
 
     private static Optional<URI> uri(String value) {

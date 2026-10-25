@@ -53,6 +53,11 @@ public class HibernateStoresTest extends StoreContractTest {
         return stores.deliveries();
     }
 
+    @Override
+    protected TransactionRunner transactions() {
+        return transactions;
+    }
+
     @Test
     void hibernateStoresReplaceTheInMemoryDefaults() {
         assertInstanceOf(HibernateActorStore.class, stores.actors());

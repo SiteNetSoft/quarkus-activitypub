@@ -94,8 +94,13 @@ public class HibernateActorStore implements ActorStore {
 
     @Override
     public void delete(URI actorId) {
-        QuarkusTransaction.joiningExisting().run(() -> em().createQuery("delete from ApLocalActor a where a.id = :id")
-                .setParameter("id", actorId.toString()).executeUpdate());
+        QuarkusTransaction.joiningExisting().run(() -> {
+            ApLocalActor row = em().find(ApLocalActor.class, actorId.toString());
+            if (row != null) {
+                em().remove(row);
+                em().flush(); // deletes run before inserts: a re-save of the id or username must follow it
+            }
+        });
     }
 
     private LocalActor toActor(ApLocalActor row) {

@@ -117,9 +117,12 @@ public class HibernateObjectStore implements ObjectStore {
     /** Removes the remote objects whose first {@code attributedTo} (an activity's {@code actor}) is {@code actorId}. */
     @Override
     public void deleteByActor(URI actorId) {
-        QuarkusTransaction.joiningExisting().run(() -> em()
-                .createQuery("delete from ApObject o where o.local = false and o.actor = :actor")
-                .setParameter("actor", actorId.toString()).executeUpdate());
+        // entity removes, not a bulk delete: rows read earlier in the caller's transaction must not stay cached
+        QuarkusTransaction.joiningExisting().run(() -> {
+            em().createQuery("from ApObject o where o.local = false and o.actor = :actor", ApObject.class)
+                    .setParameter("actor", actorId.toString()).getResultList().forEach(em()::remove);
+            em().flush();
+        });
     }
 
     /**
@@ -146,8 +149,7 @@ public class HibernateObjectStore implements ObjectStore {
 
     @Override
     public void forgetSeen(URI activityId) {
-        QuarkusTransaction.joiningExisting().run(() -> em().createQuery("delete from ApSeenActivity s where s.id = :id")
-                .setParameter("id", activityId.toString()).executeUpdate());
+        QuarkusTransaction.joiningExisting().run(() -> removeIfPresent(ApSeenActivity.class, activityId.toString()));
     }
 
     @Override
@@ -177,6 +179,14 @@ public class HibernateObjectStore implements ObjectStore {
     private long count(URI actorId) {
         return em().createQuery("select count(o) from ApObject o where " + OUTBOX, Long.class)
                 .setParameter("actor", actorId.toString()).getSingleResult();
+    }
+
+    private void removeIfPresent(Class<?> entity, Object id) {
+        Object row = em().find(entity, id);
+        if (row != null) {
+            em().remove(row);
+            em().flush(); // deletes run before inserts: a re-add of the same key in this transaction must follow it
+        }
     }
 
     private ASObject read(ApObject row) {

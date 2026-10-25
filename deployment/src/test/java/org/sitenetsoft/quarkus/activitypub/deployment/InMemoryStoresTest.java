@@ -21,6 +21,7 @@ import org.sitenetsoft.quarkus.activitypub.store.DeliveryStore;
 import org.sitenetsoft.quarkus.activitypub.store.FollowerStore;
 import org.sitenetsoft.quarkus.activitypub.store.ObjectStore;
 import org.sitenetsoft.quarkus.activitypub.store.Stores;
+import org.sitenetsoft.quarkus.activitypub.store.TransactionRunner;
 import org.sitenetsoft.quarkus.activitypub.store.memory.InMemoryActorStore;
 import org.sitenetsoft.quarkus.activitypub.store.memory.InMemoryDeliveryStore;
 import org.sitenetsoft.quarkus.activitypub.store.memory.InMemoryFollowerStore;
@@ -38,6 +39,9 @@ public class InMemoryStoresTest extends StoreContractTest {
 
     @Inject
     Stores stores;
+
+    @Inject
+    TransactionRunner transactions;
 
     @Inject
     LocalActors localActors;
@@ -60,6 +64,11 @@ public class InMemoryStoresTest extends StoreContractTest {
     @Override
     protected DeliveryStore deliveries() {
         return stores.deliveries();
+    }
+
+    @Override
+    protected TransactionRunner transactions() {
+        return transactions;
     }
 
     @Test
