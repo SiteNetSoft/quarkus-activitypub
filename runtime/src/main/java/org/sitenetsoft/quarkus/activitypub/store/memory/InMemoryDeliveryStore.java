@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import org.sitenetsoft.quarkus.activitypub.store.Delivery;
@@ -31,7 +32,8 @@ public class InMemoryDeliveryStore implements DeliveryStore {
     private final Map<String, Row> rows = new ConcurrentHashMap<>();
     private final Map<String, HostHealth> hosts = new ConcurrentHashMap<>();
 
-    public InMemoryDeliveryStore() {
+    @PostConstruct
+    void warnIfProduction() {
         ProductionWarning.warnIfProduction("DeliveryStore");
     }
 

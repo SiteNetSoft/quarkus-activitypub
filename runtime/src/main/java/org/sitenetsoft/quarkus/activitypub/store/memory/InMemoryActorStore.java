@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import org.sitenetsoft.quarkus.activitypub.actor.ActorKeyPair;
@@ -24,7 +25,8 @@ public class InMemoryActorStore implements ActorStore {
     private final Map<URI, Entry> byId = new ConcurrentHashMap<>();
     private final Map<String, URI> idByUsername = new ConcurrentHashMap<>();
 
-    public InMemoryActorStore() {
+    @PostConstruct
+    void warnIfProduction() {
         ProductionWarning.warnIfProduction("ActorStore");
     }
 

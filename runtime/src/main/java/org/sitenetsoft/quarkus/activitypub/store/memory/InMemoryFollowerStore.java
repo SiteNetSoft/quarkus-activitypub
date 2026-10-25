@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import org.sitenetsoft.quarkus.activitypub.store.FollowState;
@@ -33,7 +34,8 @@ public class InMemoryFollowerStore implements FollowerStore {
     private final Map<Key, Relation> following = new ConcurrentHashMap<>();
     private final AtomicLong sequence = new AtomicLong();
 
-    public InMemoryFollowerStore() {
+    @PostConstruct
+    void warnIfProduction() {
         ProductionWarning.warnIfProduction("FollowerStore");
     }
 

@@ -6,7 +6,9 @@ import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
+import io.quarkus.arc.ClientProxy;
 import io.quarkus.arc.InjectableInstance;
+import io.quarkus.runtime.Startup;
 
 /**
  * Both views (blocking and reactive) of every store, whichever form the application provided.
@@ -14,8 +16,11 @@ import io.quarkus.arc.InjectableInstance;
  * Per store: an application bean wins over the in-memory {@code @DefaultBean}. If the application provides only the
  * reactive form, the blocking view awaits it (at most 30 s); if it provides only the blocking form (or nothing, so the
  * in-memory default applies), the reactive view runs the blocking store on a worker thread.
+ * <p>
+ * {@code @Startup} so the in-memory defaults in use are instantiated at boot and log their production WARN then.
  */
 @ApplicationScoped
+@Startup
 public class Stores {
 
     @Inject
@@ -64,7 +69,8 @@ public class Stores {
         if (reactive.isResolvable()) {
             return adapt.apply(reactive.get());
         }
-        return blocking.get();
+        // the in-memory default: create the real instance now so its @PostConstruct (production WARN) runs at boot
+        return ClientProxy.unwrap(blocking.get());
     }
 
     /** The app's reactive bean if any, else the blocking view adapted. */

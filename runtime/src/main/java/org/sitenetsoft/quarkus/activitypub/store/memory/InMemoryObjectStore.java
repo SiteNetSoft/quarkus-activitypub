@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import org.sitenetsoft.activitystreams.ASObject;
@@ -41,7 +42,8 @@ public class InMemoryObjectStore implements ObjectStore {
     private final AtomicLong sequence = new AtomicLong();
     private final AtomicLong markSeenCalls = new AtomicLong();
 
-    public InMemoryObjectStore() {
+    @PostConstruct
+    void warnIfProduction() {
         ProductionWarning.warnIfProduction("ObjectStore");
     }
 
