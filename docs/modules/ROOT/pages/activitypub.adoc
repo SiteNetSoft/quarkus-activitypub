@@ -39,6 +39,11 @@ requests from their audience
 
 Apps whose object ids are their own page URLs put `ActivityPubContentNegotiation` in front of their HTML routes.
 
+`quarkus.http.root-path` does not move these routes. Behind a proxy that serves the app under a prefix (`/app`),
+either the proxy strips the prefix and it goes only in `base-url` (`https://example.com/app`), or the proxy forwards it
+unchanged and it goes only in `paths.*` (`/app/users/{username}`, ...); never both, or ids become `/app/app/...` and
+inbound paths no longer parse. `/.well-known/webfinger` must reach the app at the root either way.
+
 == Publishing
 
 `ActivityPub` (blocking) and `ReactiveActivityPub` (Mutiny) publish on behalf of a local actor:

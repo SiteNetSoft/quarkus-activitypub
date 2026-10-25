@@ -20,7 +20,10 @@ public interface ReactiveActorStore {
 
     Uni<Long> countLocalActors();
 
-    Uni<List<LocalActor>> list(int limit);
+    /** See {@link ActorStore#list(int)}; the default lists none. */
+    default Uni<List<LocalActor>> list(int limit) {
+        return Uni.createFrom().item(List.of());
+    }
 
     Uni<Optional<ActorKeyPair>> keyPair(URI actorId);
 

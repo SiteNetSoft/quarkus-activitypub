@@ -31,8 +31,11 @@
     port). Ids are built from it, so changing it later orphans every follower. `http://localhost:8080` only works for
     loopback tests.
   - **`quarkus.http.root-path` does not move the ActivityPub or WebFinger routes**: they are registered at the server
-    root (a build warning says so). Behind a proxy that adds a prefix, put it in `base-url` and in `paths.*`, and make
-    sure `/.well-known/webfinger` reaches the app, or Mastodon's search gets 404.
+    root (a build warning says so). Behind a proxy that serves the app under a prefix (`/app`): either the proxy
+    strips the prefix and it goes only in `base-url` (`https://example.com/app`), or the proxy forwards it unchanged
+    and it goes only in `paths.*` (`/app/users/{username}`, ...), never both (ids would become `/app/app/...` and
+    inbound paths would not parse). Either way `/.well-known/webfinger` must reach the app at the root, or Mastodon's
+    search gets 404.
   - **https-only in dev.** safe-fetch refuses plain `http` and private addresses. For a local fake or a second local
     instance set `%dev.quarkus.safe-fetch.https-only=false` and `%dev.quarkus.safe-fetch.allow-private-addresses=true`
     (and `%test.`); never in prod.

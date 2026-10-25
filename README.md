@@ -108,6 +108,9 @@ All `quarkus.activitypub.*`. Build-time properties are fixed when the applicatio
 | `dedup.retention` | `7d` | How long inbound activity ids are remembered |
 | `remote-objects.retention` | `90d` | How long kept remote objects live; `0` disables expiry |
 
+Behind a proxy that serves the app under a prefix, the prefix goes either only in `base-url` (the proxy strips it) or
+only in `paths.*` (the proxy forwards it unchanged), never both; `/.well-known/webfinger` must reach the app at the root.
+
 `quarkus-activitypub-hibernate` adds `quarkus.activitypub.hibernate.persistence-unit` (see `hibernate/README.md`);
 NodeInfo is configured under `quarkus.nodeinfo.*` (see `nodeinfo/README.md`).
 

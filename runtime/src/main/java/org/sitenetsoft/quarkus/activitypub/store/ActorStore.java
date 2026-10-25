@@ -19,8 +19,13 @@ public interface ActorStore {
 
     long countLocalActors();
 
-    /** Up to {@code limit} local actors, ordered by username. */
-    List<LocalActor> list(int limit);
+    /**
+     * Up to {@code limit} local actors, ordered by username, for the Dev UI. The default lists none; the built-in
+     * stores override it.
+     */
+    default List<LocalActor> list(int limit) {
+        return List.of();
+    }
 
     Optional<ActorKeyPair> keyPair(URI actorId);
 
