@@ -271,6 +271,16 @@ class ActivityPubProcessor {
      * value types around them, the custom (de)serializers (and their nested classes), and the store records the Dev UI
      * and applications serialise. Hibernate entities are registered by Hibernate ORM.
      */
+    /**
+     * {@code Ids} seeds a {@link java.security.SecureRandom} in a static initializer; native-image must not capture it
+     * in the image heap, so the class is initialised at run time.
+     */
+    @BuildStep
+    io.quarkus.deployment.builditem.nativeimage.RuntimeInitializedClassBuildItem runtimeInitialisedIds() {
+        return new io.quarkus.deployment.builditem.nativeimage.RuntimeInitializedClassBuildItem(
+                org.sitenetsoft.quarkus.activitypub.Ids.class.getName());
+    }
+
     @BuildStep
     ReflectiveClassBuildItem jacksonReflection() {
         Set<Class<?>> classes = new LinkedHashSet<>(ASTypes.defaults().classes());
