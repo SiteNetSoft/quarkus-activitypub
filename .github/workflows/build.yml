@@ -45,7 +45,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: graalvm/setup-graalvm@v1
         with:
-          java-version: 21
+          # Quarkus 3.40 requires GraalVM/Mandrel 25; the code still targets release 21
+          java-version: 25
           distribution: mandrel
           cache: maven
       - name: Build sibling dependencies (safe-fetch, webfinger, http-signatures)
