@@ -65,4 +65,16 @@ public class InboxPolicyTest {
         assertEquals(0, stores.followers().followerCount(ALICE));
         assertTrue(activityPub.published(ALICE).isEmpty());
     }
+
+    @Test
+    void unmappableBodyFromBlockedDomainIsStillDropped() {
+        // the screen only peeks at type and actor: a body the full model rejects is still screened, never verified
+        FakeActor dora = fake.actor("dora");
+        fake.clear();
+        byte[] body = InboxFixtures.withUnmappableField(follow(dora, ALICE));
+        assertEquals(202, InboxFixtures.send(dora, ALICE_INBOX, body, InboxFixtures.ACTIVITY_JSON).statusCode());
+        assertTrue(inboxLog.entries().stream()
+                .anyMatch(e -> dora.id().equals(e.actor()) && InboxLog.BLOCKED.equals(e.result())));
+        assertEquals(0, fake.requestCount("/users/dora"), "no key fetch from a blocked host");
+    }
 }

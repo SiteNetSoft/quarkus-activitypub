@@ -2,6 +2,9 @@ package org.sitenetsoft.quarkus.activitypub.inbox;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -10,7 +13,6 @@ import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 import org.sitenetsoft.activitystreams.ASObject;
 import org.sitenetsoft.activitystreams.Activity;
-import org.sitenetsoft.activitystreams.Delete;
 import org.sitenetsoft.httpsignatures.VerificationResult;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubConfig;
 import org.sitenetsoft.quarkus.activitypub.ActivityPubMediaTypes;
@@ -40,9 +42,12 @@ import io.vertx.ext.web.RoutingContext;
  * → {@code 413}; an activity whose {@code actor} is on a host blocked by {@link DomainPolicy} → {@code 202}, dropped
  * without verifying (no key fetch from that host); a {@code Delete} of an actor by itself when that actor is unknown here
  * (no key accepted recently, no follow relationship, not held in {@code ObjectStore}) → {@code 202}, dropped without
- * verifying, so a deleted account's retries never make us fetch its (gone) key; a signature that does not verify →
+ * verifying, so a deleted account's retries never make us fetch its (gone) key (these two screens only peek at the
+ * body's {@code type}, {@code actor} and {@code object} as a JSON tree; a body they cannot read is not screened and goes
+ * to verification); a signature that does not verify →
  * {@code 401}; not an ActivityPub content type → {@code 415};
- * not a JSON object, or not an activity → {@code 400}; {@code actor} absent or not the signer → {@code 401}; actor's
+ * not a JSON object, not an activity, or not readable as one (the full model is only parsed after verification) →
+ * {@code 400}; {@code actor} absent or not the signer → {@code 401}; actor's
  * host blocked by {@link DomainPolicy} → {@code 202}, dropped; {@code id} (on the actor's host; other ids are not
  * deduplicated) already seen → {@code 202}, dropped;
  * otherwise {@code 202} and {@link InboxProcessor} takes over on a worker thread. Nothing here blocks the event loop.
@@ -133,23 +138,37 @@ public class InboxHandler implements BeanHandler.VariantHandler {
         });
     }
 
+    /** What the pre-verification screen reads of a body: its {@code type} names, {@code actor} and {@code object} ids. */
+    private record Peek(List<String> types, Optional<URI> actor, Optional<URI> object) {
+
+        String type() {
+            return types.isEmpty() ? UNKNOWN : types.get(0);
+        }
+
+        /** A {@code Delete} whose object is its actor: an account deleting itself. */
+        boolean isSelfDeleteOf(URI who) {
+            boolean delete = types.stream().anyMatch(t -> t.equals("Delete") || t.endsWith(":Delete"));
+            return delete && object.filter(who::equals).isPresent();
+        }
+    }
+
     /**
      * Before verifying (which may fetch the signer's key): drops activities of blocked actors and self-deletes of
-     * actors we do not know, answering {@code 202}; everything else is verified.
+     * actors we do not know, answering {@code 202}; everything else is verified. Only peeks at the body as a JSON tree
+     * (no model mapping before authentication); a body that cannot be peeked at is not screened.
      */
     private void screen(RoutingContext ctx, Optional<LocalActor> recipient, byte[] body) {
-        Optional<Activity> parsed = parse(body);
-        Optional<URI> actor = parsed.flatMap(Activity::actorUri);
+        Optional<Peek> peeked = peek(body);
+        Optional<URI> actor = peeked.flatMap(Peek::actor);
         if (actor.isPresent() && actor.get().getHost() != null
                 && domains.allow(actor.get().getHost()) == DomainPolicy.Decision.BLOCK) {
-            String type = parsed.get().getClass().getSimpleName();
+            String type = peeked.get().type();
             LOG.debugf("Inbox %s: %s from blocked %s dropped", ctx.normalizedPath(), type, actor.get());
             log.record(type, actor.get(), InboxLog.BLOCKED);
             accepted(ctx);
             return;
         }
-        if (parsed.isPresent() && actor.isPresent() && isSelfDelete(parsed.get(), actor.get())
-                && !keys.knowsActor(actor.get())) {
+        if (actor.isPresent() && peeked.get().isSelfDeleteOf(actor.get()) && !keys.knowsActor(actor.get())) {
             URI deleted = actor.get();
             Uni<Boolean> known = stores.reactiveFollowers().knowsRemote(deleted)
                     .chain(follows -> follows ? Uni.createFrom().item(true)
@@ -168,9 +187,46 @@ public class InboxHandler implements BeanHandler.VariantHandler {
         verify(ctx, recipient);
     }
 
-    /** A {@code Delete} whose object is its actor: an account deleting itself. */
-    private static boolean isSelfDelete(Activity activity, URI actor) {
-        return activity instanceof Delete && activity.objectUri().filter(actor::equals).isPresent();
+    /** The screen's view of {@code body} (already bounded by the body limit); empty when it is not a readable object. */
+    private Optional<Peek> peek(byte[] body) {
+        try {
+            JsonNode tree = mapper.readTree(body);
+            if (tree == null || !tree.isObject()) {
+                return Optional.empty();
+            }
+            List<String> types = new ArrayList<>();
+            JsonNode type = tree.get("type");
+            if (type != null && type.isTextual()) {
+                types.add(type.asText());
+            } else if (type != null && type.isArray()) {
+                type.forEach(t -> {
+                    if (t.isTextual()) {
+                        types.add(t.asText());
+                    }
+                });
+            }
+            return Optional.of(new Peek(types, idOf(tree.get("actor")), idOf(tree.get("object"))));
+        } catch (IOException | RuntimeException e) {
+            return Optional.empty();
+        }
+    }
+
+    /** A string, or an object's {@code id}, as a URI; for an array its first element. Empty for anything else. */
+    private static Optional<URI> idOf(JsonNode node) {
+        if (node != null && node.isArray()) {
+            node = node.isEmpty() ? null : node.get(0);
+        }
+        if (node != null && node.isObject()) {
+            node = node.get("id");
+        }
+        if (node == null || !node.isTextual()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new URI(node.asText()));
+        } catch (URISyntaxException e) {
+            return Optional.empty();
+        }
     }
 
     private void verify(RoutingContext ctx, Optional<LocalActor> recipient) {
@@ -243,7 +299,10 @@ public class InboxHandler implements BeanHandler.VariantHandler {
         processor.submit(recipient, body, activity, keyId, actor);
     }
 
-    /** The body as an activity of a known type; empty for anything else (not JSON, not an object, not an activity). */
+    /**
+     * The body as an activity of a known type; empty for anything else (not JSON, not an object, not an activity, or
+     * failing to map in any way). Only called after verification.
+     */
     private Optional<Activity> parse(byte[] body) {
         try {
             JsonNode tree = mapper.readTree(body);
@@ -252,7 +311,8 @@ public class InboxHandler implements BeanHandler.VariantHandler {
             }
             ASObject object = mapper.treeToValue(tree, ASObject.class);
             return object instanceof Activity activity ? Optional.of(activity) : Optional.empty();
-        } catch (IOException | IllegalArgumentException e) {
+        } catch (IOException | RuntimeException e) {
+            LOG.debugf("Inbox body not readable as an activity: %s", e.getMessage());
             return Optional.empty();
         }
     }

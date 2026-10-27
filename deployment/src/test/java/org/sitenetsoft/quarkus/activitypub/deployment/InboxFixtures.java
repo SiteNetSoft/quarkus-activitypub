@@ -119,4 +119,16 @@ final class InboxFixtures {
             throw new IllegalStateException(e);
         }
     }
+
+    /** {@code activity} as JSON with {@code published} set to a value that does not map to an instant. */
+    static byte[] withUnmappableField(ASObject activity) {
+        try {
+            com.fasterxml.jackson.databind.node.ObjectNode json = org.sitenetsoft.activitystreams.ASJson.mapper()
+                    .valueToTree(activity);
+            json.put("published", "not-a-date");
+            return org.sitenetsoft.activitystreams.ASJson.mapper().writeValueAsBytes(json);
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
 }

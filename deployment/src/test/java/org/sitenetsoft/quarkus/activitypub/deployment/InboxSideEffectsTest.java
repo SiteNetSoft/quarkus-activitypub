@@ -299,6 +299,25 @@ public class InboxSideEffectsTest {
     }
 
     @Test
+    void garbageBodyWithSignatureIsNot500() {
+        FakeActor gary = fake.actor("gary");
+        byte[] truncated = "{\"type\":\"Create\",\"object\":{\"type\":".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        assertEquals(400, InboxFixtures.send(gary, ALICE_INBOX, truncated, InboxFixtures.ACTIVITY_JSON).statusCode());
+        assertEquals(400, InboxFixtures.send(gary, InboxFixtures.SHARED_INBOX, truncated, InboxFixtures.ACTIVITY_JSON)
+                .statusCode());
+    }
+
+    @Test
+    void unmappableSelfDeleteOfUnknownActorDoesNotFetch() {
+        // the screen only peeks at type, actor and object: a body the full model rejects is still screened
+        FakeActor ned = fake.actor("ned");
+        fake.clear();
+        byte[] body = InboxFixtures.withUnmappableField(delete(ned, ned.id()));
+        assertEquals(202, InboxFixtures.send(ned, ALICE_INBOX, body, InboxFixtures.ACTIVITY_JSON).statusCode());
+        assertEquals(0, fake.requestCount("/users/ned"), "the deleted actor's key is not fetched");
+    }
+
+    @Test
     void deleteOfKnownActorIsVerified() {
         FakeActor max = fake.actor("max");
         FakeActor forger = fake.actor("forger");
