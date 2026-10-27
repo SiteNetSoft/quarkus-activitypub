@@ -39,7 +39,7 @@ import io.quarkus.test.junit.QuarkusIntegrationTest;
 /**
  * The sample app, packaged and started on port 8081 (it must be free): carol, on a fake fediverse server, discovers
  * alice through WebFinger, fetches her actor, follows her and receives a signed {@code Accept}; then
- * {@code POST /demo/post} makes alice post and carol receives the signed {@code Create}. Everything goes over HTTP: an
+ * {@code POST /demo/post} (with the test profile's bearer token) makes alice post and carol receives the signed {@code Create}. Everything goes over HTTP: an
  * integration test cannot inject the app's beans.
  */
 @QuarkusIntegrationTest
@@ -49,6 +49,8 @@ class DemoFlowIT {
     static final FakeFediverseServer fake = new FakeFediverseServer("127.0.0.1");
     static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     static final Duration WAIT = Duration.ofSeconds(30);
+    /** {@code %test.demo.token} in application.properties. */
+    static final String TOKEN = "demo-test-token";
 
     @BeforeAll
     static void startFake() {
@@ -114,9 +116,16 @@ class DemoFlowIT {
         assertEquals(200, log.statusCode(), log.body());
         assertTrue(log.body().contains("Follow"), log.body());
 
-        // alice posts through the demo resource; carol receives the signed Create
-        HttpResponse<String> posted = send(HttpRequest.newBuilder(URI.create(APP + "/demo/post?user=alice&text="
-                + URLEncoder.encode("hello fediverse", StandardCharsets.UTF_8)))
+        // the demo endpoint needs the bearer token
+        URI postUri = URI.create(APP + "/demo/post?user=alice&text="
+                + URLEncoder.encode("hello <b>fediverse</b> & co", StandardCharsets.UTF_8));
+        assertEquals(401, send(HttpRequest.newBuilder(postUri).POST(HttpRequest.BodyPublishers.noBody()))
+                .statusCode());
+        assertEquals(401, send(HttpRequest.newBuilder(postUri).header("Authorization", "Bearer wrong")
+                .POST(HttpRequest.BodyPublishers.noBody())).statusCode());
+
+        // alice posts through the demo resource; carol receives the signed Create, with the text HTML-escaped
+        HttpResponse<String> posted = send(HttpRequest.newBuilder(postUri).header("Authorization", "Bearer " + TOKEN)
                 .POST(HttpRequest.BodyPublishers.noBody()));
         assertEquals(200, posted.statusCode(), posted.body());
         URI createId = URI.create(posted.body().strip());
@@ -124,6 +133,6 @@ class DemoFlowIT {
                 Optional::isPresent).orElseThrow();
         assertEquals(createId, create.id());
         Note note = (Note) create.embeddedObject().orElseThrow();
-        assertEquals("hello fediverse", note.content());
+        assertEquals("<p>hello &lt;b&gt;fediverse&lt;/b&gt; &amp; co</p>", note.content());
     }
 }

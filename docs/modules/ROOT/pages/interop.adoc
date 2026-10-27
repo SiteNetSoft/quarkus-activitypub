@@ -18,16 +18,21 @@ mvn -T 8 install -DskipTests
   or a tunnel (cloudflared, ngrok) to `localhost:8081`. The proxy must keep the request path at the root (in particular
   `/.well-known/webfinger`), pass the `Host` header through unchanged and not rewrite request bodies.
 
-. *Start the sample with that hostname as its base URL.* The `prod` profile keeps safe-fetch strict (https only, no
-  private addresses), which is what a real federation needs:
+. *Start the sample with that hostname as its base URL and a demo token.* The `prod` profile keeps safe-fetch strict
+  (https only, no private addresses), which is what a real federation needs. `POST /demo/post` is disabled (404) unless
+  `demo.token` (environment variable `DEMO_TOKEN`) is set, and then requires `Authorization: Bearer <token>`; pick a
+  random value, the app is on a public hostname:
 +
 [source,shell]
 ----
+export DEMO_TOKEN=$(openssl rand -hex 24)
 java -Dquarkus.activitypub.base-url=https://ap-test.example.net \
      -jar integration-tests/target/quarkus-app/quarkus-run.jar
 ----
 +
-`DemoActors` registers `alice` at startup.
+`DemoActors` registers `alice` at startup. The sample keeps everything in an in-memory H2 database with
+`drop-and-create`, so a restart regenerates alice's keys and forgets her followers: do not restart the app in the
+middle of a test (Mastodon caches the old key and the follow).
 
 . *Check discovery from outside*:
 +
@@ -57,10 +62,11 @@ shows the `Follow` with result `accepted`.
 +
 [source,shell]
 ----
-curl -s -X POST 'https://ap-test.example.net/demo/post?user=alice&text=Hello%20from%20Quarkus'
+curl -s -X POST -H "Authorization: Bearer $DEMO_TOKEN" \
+     'https://ap-test.example.net/demo/post?user=alice&text=Hello%20from%20Quarkus'
 ----
 +
-The response is the id of the `Create` activity.
+The response is the id of the `Create` activity. The text is HTML-escaped and wrapped in `<p>`.
 
 . *Observe*: the post appears in the Mastodon account's home timeline within a few seconds (the delivery job polls
   every `quarkus.activitypub.delivery.poll-interval`). Replies from Mastodon arrive as `Create` in the inbox log.
