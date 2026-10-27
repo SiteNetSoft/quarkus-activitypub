@@ -5,6 +5,7 @@ import java.net.URISyntaxException;
 import java.security.Key;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,11 +44,13 @@ import io.smallrye.mutiny.Uni;
  * document lists a {@code publicKey} with exactly that id whose {@code owner} is the document's {@code id}, on the key
  * id's host. Every failure yields {@code empty} (logged at DEBUG). {@code CachingKeyResolver} caches the hits.
  * <p>
- * Fetches are throttled so a request cannot make us send requests: a key id is fetched at most once per
- * {@code fetch.key-refetch-interval} (a refetch within it, e.g. the key-rotation retry after a bogus signature, gets
- * the last result back), a key id that did not resolve is answered {@code empty} for {@code fetch.negative-cache-ttl}
- * without fetching, concurrent resolutions of one key id share one fetch, and key ids on a host blocked by
- * {@link DomainPolicy} are never fetched. Key rotation still works: the first verification failure after the interval
+ * Fetches are throttled so a request cannot make us send requests. The throttle is keyed on the fetched document (the
+ * key id without its fragment, scheme and host lower-cased), so varying the fragment ({@code #k1}, {@code #k2}, ...)
+ * does not cause more fetches: a document is fetched at most once per {@code fetch.key-refetch-interval} (a lookup
+ * within it, e.g. the key-rotation retry after a bogus signature or another key id of the same document, is answered
+ * from the last fetched document), a document that could not be fetched is answered {@code empty} for
+ * {@code fetch.negative-cache-ttl} without fetching, concurrent resolutions of one document share one fetch (registered
+ * when the {@code Uni} is subscribed), and key ids on a host blocked by {@link DomainPolicy} are never fetched. Key rotation still works: the first verification failure after the interval
  * fetches the document again. Times come from the injected {@link Clock}.
  */
 @Priority(50)
@@ -83,11 +86,11 @@ public class ActorKeyResolver implements ReactiveKeyResolver {
     private Cache<String, URI> owners;
     /** Actors owning a key accepted here (the values of {@link #owners}), for {@link #knowsActor}. */
     private Cache<URI, Boolean> knownActors;
-    /** The last fetch result per remote key id, kept for {@code fetch.key-refetch-interval}. */
-    private Cache<String, Optional<VerificationKey>> recent;
-    /** Remote key ids that did not resolve, kept for {@code fetch.negative-cache-ttl}. */
-    private Cache<String, Boolean> unresolved;
-    private final ConcurrentHashMap<String, CompletableFuture<Optional<VerificationKey>>> inFlight = new ConcurrentHashMap<>();
+    /** The last fetched actor per remote document URI (empty: fetch failed), kept for {@code fetch.key-refetch-interval}. */
+    private Cache<URI, Optional<Actor>> recent;
+    /** Remote document URIs that could not be fetched, kept for {@code fetch.negative-cache-ttl}. */
+    private Cache<URI, Boolean> unresolved;
+    private final ConcurrentHashMap<URI, CompletableFuture<Optional<Actor>>> inFlight = new ConcurrentHashMap<>();
 
     @PostConstruct
     void init() {
@@ -177,58 +180,83 @@ public class ActorKeyResolver implements ReactiveKeyResolver {
             LOG.debugf("Key %s is on a blocked domain; not fetched", keyId);
             return Uni.createFrom().item(Optional.empty());
         }
-        if (unresolved.getIfPresent(keyId) != null) {
-            LOG.debugf("Key %s did not resolve recently; not fetched again yet", keyId);
+        URI document = documentOf(keyUri);
+        return Uni.createFrom().deferred(() -> document(document))
+                .map(actor -> actor.flatMap(a -> keyIn(a, keyId, keyUri)));
+    }
+
+    /** {@code keyUri} without its fragment, with scheme and host lower-cased: the throttle key and the URL fetched. */
+    static URI documentOf(URI keyUri) {
+        StringBuilder s = new StringBuilder();
+        s.append(keyUri.getScheme().toLowerCase(Locale.ROOT)).append("://");
+        if (keyUri.getRawUserInfo() != null) {
+            s.append(keyUri.getRawUserInfo()).append('@');
+        }
+        s.append(keyUri.getHost().toLowerCase(Locale.ROOT));
+        if (keyUri.getPort() != -1) {
+            s.append(':').append(keyUri.getPort());
+        }
+        if (keyUri.getRawPath() != null) {
+            s.append(keyUri.getRawPath());
+        }
+        if (keyUri.getRawQuery() != null) {
+            s.append('?').append(keyUri.getRawQuery());
+        }
+        return URI.create(s.toString());
+    }
+
+    /** The actor document at {@code document}, throttled; called on subscription. */
+    private Uni<Optional<Actor>> document(URI document) {
+        if (unresolved.getIfPresent(document) != null) {
+            LOG.debugf("Actor document %s could not be fetched recently; not fetched again yet", document);
             return Uni.createFrom().item(Optional.empty());
         }
-        Optional<VerificationKey> last = recent.getIfPresent(keyId);
+        Optional<Actor> last = recent.getIfPresent(document);
         if (last != null) {
-            LOG.debugf("Key %s was fetched less than %s ago; reusing that result", keyId,
+            LOG.debugf("Actor document %s was fetched less than %s ago; reusing it", document,
                     config.fetch().keyRefetchInterval());
             return Uni.createFrom().item(last);
         }
-        CompletableFuture<Optional<VerificationKey>> mine = new CompletableFuture<>();
-        CompletableFuture<Optional<VerificationKey>> running = inFlight.putIfAbsent(keyId, mine);
+        CompletableFuture<Optional<Actor>> mine = new CompletableFuture<>();
+        CompletableFuture<Optional<Actor>> running = inFlight.putIfAbsent(document, mine);
         if (running != null) {
             return Uni.createFrom().completionStage(running);
         }
-        return fetchRemote(keyId, keyUri)
+        remoteCache.invalidate(document);
+        return client.fetchActor(document).map(Optional::of)
                 .onFailure().recoverWithItem(failure -> {
-                    LOG.debugf("Key %s not resolved: %s", keyId, failure.getMessage());
-                    return Optional.empty();
+                    LOG.debugf("Actor document %s not fetched: %s", document, failure.getMessage());
+                    return Optional.<Actor>empty();
                 })
                 .invoke(result -> {
-                    recent.put(keyId, result);
+                    recent.put(document, result);
                     if (result.isEmpty()) {
-                        unresolved.put(keyId, Boolean.TRUE);
+                        unresolved.put(document, Boolean.TRUE);
                     }
                 })
                 .onTermination().invoke((result, failure, cancelled) -> {
-                    inFlight.remove(keyId, mine);
+                    inFlight.remove(document, mine);
                     mine.complete(result == null ? Optional.empty() : result);
                 });
     }
 
-    private Uni<Optional<VerificationKey>> fetchRemote(String keyId, URI keyUri) {
-        URI document = ActorSigningKeyProvider.withoutFragment(keyUri);
-        remoteCache.invalidate(document);
-        return client.fetchActor(document).map(actor -> {
-            Optional<PublicKey> key = actor.publicKey().stream().filter(k -> keyUri.equals(k.id())).findFirst();
-            if (key.isEmpty()) {
-                LOG.debugf("Actor %s does not list key %s", actor.id(), keyId);
-                return Optional.empty();
-            }
-            if (!accepted(keyId, keyUri, actor, key.get())) {
-                return Optional.empty();
-            }
-            Key parsed = Keys.parsePem(key.get().publicKeyPem());
-            if (!(parsed instanceof java.security.PublicKey publicKey)) {
-                LOG.debugf("Key %s is not a public key", keyId);
-                return Optional.empty();
-            }
-            accept(keyId, actor.id());
-            return Optional.of(new VerificationKey(keyId, Optional.empty(), publicKey));
-        });
+    /** The key {@code keyId} listed in {@code actor}, if it is acceptable. */
+    private Optional<VerificationKey> keyIn(Actor actor, String keyId, URI keyUri) {
+        Optional<PublicKey> key = actor.publicKey().stream().filter(k -> keyUri.equals(k.id())).findFirst();
+        if (key.isEmpty()) {
+            LOG.debugf("Actor %s does not list key %s", actor.id(), keyId);
+            return Optional.empty();
+        }
+        if (!accepted(keyId, keyUri, actor, key.get())) {
+            return Optional.empty();
+        }
+        Key parsed = Keys.parsePem(key.get().publicKeyPem());
+        if (!(parsed instanceof java.security.PublicKey publicKey)) {
+            LOG.debugf("Key %s is not a public key", keyId);
+            return Optional.empty();
+        }
+        accept(keyId, actor.id());
+        return Optional.of(new VerificationKey(keyId, Optional.empty(), publicKey));
     }
 
     private static boolean accepted(String keyId, URI keyUri, Actor actor, PublicKey key) {

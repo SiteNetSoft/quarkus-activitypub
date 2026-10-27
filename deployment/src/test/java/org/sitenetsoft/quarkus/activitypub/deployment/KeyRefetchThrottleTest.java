@@ -121,4 +121,19 @@ public class KeyRefetchThrottleTest {
         clock.advance(Duration.ofSeconds(61));
         assertEquals(202, post(rosa, follow(rosa, ALICE)), "after the interval the rotated key is fetched");
     }
+
+    @Test
+    void fragmentVariantsShareOneFetch() {
+        FakeActor carol = fake.actor("carol");
+        // past the refetch interval, so an earlier test's fetch of carol does not count
+        clock.advance(Duration.ofSeconds(61));
+        fake.clear();
+        String actor = carol.id().toString();
+        assertTrue(keys.resolve(actor + "#k1").await().atMost(Duration.ofSeconds(15)).isEmpty());
+        assertTrue(keys.resolve(actor + "#k2").await().atMost(Duration.ofSeconds(15)).isEmpty());
+        assertTrue(keys.resolve(carol.keyId()).await().atMost(Duration.ofSeconds(15)).isPresent());
+        long requests = fake.received().stream()
+                .filter(r -> r.method().equals("GET") && r.path().equals("/users/carol")).count();
+        assertEquals(1, requests, "one fetch of carol's actor document for all key id fragments");
+    }
 }
