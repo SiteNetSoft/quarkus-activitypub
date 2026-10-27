@@ -66,4 +66,15 @@ public class HibernateStoresTest extends StoreContractTest {
         assertInstanceOf(HibernateDeliveryStore.class, stores.deliveries());
         assertInstanceOf(JtaTransactionRunner.class, transactions);
     }
+
+    @Test
+    void newHostRecordedInsideOuterNewTransaction() {
+        String host = "outer-" + System.nanoTime() + ".example";
+        java.time.Instant t = java.time.Instant.parse("2026-01-01T00:00:00Z");
+        io.quarkus.narayana.jta.QuarkusTransaction.requiringNew().run(() -> {
+            stores.deliveries().recordHostResult(host, false, t);
+            stores.deliveries().recordHostResult(host, false, t.plusSeconds(1));
+        });
+        org.junit.jupiter.api.Assertions.assertEquals(2, stores.deliveries().host(host).consecutiveFailures());
+    }
 }

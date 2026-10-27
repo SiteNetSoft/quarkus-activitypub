@@ -583,4 +583,18 @@ public abstract class StoreContractTest {
         assertEquals(Optional.of(t.plusSeconds(10)), healthy.lastSuccess());
         assertEquals(Optional.empty(), healthy.pausedUntil());
     }
+
+    @Test
+    public void twoNewHostsRecordedInOneTransaction() {
+        String first = unique() + ".example";
+        String second = unique() + ".example";
+        Instant t = Instant.parse("2026-01-01T00:00:00Z");
+        transactions().inTransaction(() -> {
+            deliveries().recordHostResult(first, false, t);
+            deliveries().recordHostResult(second, true, t.plusSeconds(1));
+        });
+        assertEquals(1, deliveries().host(first).consecutiveFailures());
+        assertEquals(Optional.of(t), deliveries().host(first).lastFailure());
+        assertEquals(Optional.of(t.plusSeconds(1)), deliveries().host(second).lastSuccess());
+    }
 }

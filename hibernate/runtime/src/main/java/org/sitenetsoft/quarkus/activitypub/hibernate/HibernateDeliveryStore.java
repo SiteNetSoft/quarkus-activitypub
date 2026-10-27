@@ -26,8 +26,8 @@ import io.quarkus.narayana.jta.QuarkusTransaction;
  * {@link DeliveryStore} on {@code ap_delivery} and {@code ap_host_health}; every method joins the caller's transaction
  * or opens one.
  * <p>
- * {@link #claimDue} selects the due rows {@code FOR UPDATE SKIP LOCKED} where the database supports it (PostgreSQL,
- * MySQL 8, Oracle; H2 takes plain row locks) and stamps {@code claimed_at}; a claim is honoured for 60 seconds or
+ * {@link #claimDue} selects the due rows {@code FOR UPDATE SKIP LOCKED} where the dialect supports it (PostgreSQL,
+ * MySQL 8, Oracle; Hibernate's H2 dialect renders it too) and stamps {@code claimed_at}; a claim is honoured for 60 seconds or
  * until {@link #update}. Delivery is meant to run on one node: a send that outlasts the lease could be claimed again.
  */
 @ApplicationScoped
@@ -132,21 +132,35 @@ public class HibernateDeliveryStore implements DeliveryStore {
         changeHost(host, h -> h.setPausedUntil(until));
     }
 
-    /** Applies {@code change} to the host's row, locked; the row is created first when missing. */
+    /**
+     * Applies {@code change} to the host's row, locked; the row is created first when missing. The existence check is
+     * unlocked and the insert runs before any lock is taken in the caller's transaction: a locking read of a missing
+     * row takes a gap lock on MySQL/InnoDB, which would block the nested insert (while the outer transaction is
+     * suspended) until the lock wait timeout.
+     */
     private void changeHost(String host, Consumer<ApHostHealth> change) {
         QuarkusTransaction.joiningExisting().run(() -> {
+            if (!hostExists(host)) {
+                insertHost(host);
+            }
             ApHostHealth row = em().find(ApHostHealth.class, host, LockModeType.PESSIMISTIC_WRITE);
             if (row == null) {
-                insertHost(host);
-                row = em().find(ApHostHealth.class, host, LockModeType.PESSIMISTIC_WRITE);
+                throw new IllegalStateException("Host health row for " + host + " vanished after insert");
             }
             change.accept(row);
         });
     }
 
+    /** Unlocked existence check that does not load the entity into the persistence context. */
+    private boolean hostExists(String host) {
+        return !em().createQuery("select h.host from ApHostHealth h where h.host = :host", String.class)
+                .setParameter("host", host).setMaxResults(1).getResultList().isEmpty();
+    }
+
     /**
      * Inserts an empty row for {@code host} in its own transaction, so concurrent sends to a new host do not both
-     * insert in theirs (one would fail on the primary key). Losing that race is fine: the row exists.
+     * insert in theirs (one would fail on the primary key). Losing that race (a duplicate key) is fine: the row
+     * exists. Called before the caller's transaction locks anything.
      */
     private void insertHost(String host) {
         try {

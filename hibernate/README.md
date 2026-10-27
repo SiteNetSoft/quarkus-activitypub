@@ -72,6 +72,11 @@ quarkus.activitypub.hibernate.persistence-unit=fediverse
 
 ## Schema (PostgreSQL)
 
+PostgreSQL is the tested production database (the extension's own tests run on H2). MySQL/MariaDB is not tested, and
+this schema does not fit it as is: the `varchar(2048)` primary keys (single and the composite `(local, remote)` ones)
+exceed InnoDB's index key limit (3072 bytes, i.e. 768 characters in `utf8mb4`), so MySQL needs shorter key columns or a
+hash column carrying the key instead.
+
 The DDL Hibernate expects, written by hand from the entities. Take it as the first Flyway migration.
 
 ```sql
