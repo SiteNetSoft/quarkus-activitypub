@@ -189,6 +189,38 @@ class TolerantParsingTest {
         assertEquals(1, o.to().size());
     }
 
+    @Test
+    void emojiIconUrlWithSpaceIsRepaired() throws Exception {
+        ASObject o = read("{\"type\":\"Note\",\"content\":\"hi :my blob:\",\"tag\":[{\"type\":\"Emoji\","
+                + "\"name\":\":my blob:\",\"icon\":{\"type\":\"Image\",\"mediaType\":\"image/png\","
+                + "\"url\":\"https://ex.example/emoji/my blob.png\"}}]}");
+        assertEquals("hi :my blob:", o.content());
+        ASObject emoji = o.tag().get(0).object().orElseThrow();
+        ASObject icon = emoji.icon().get(0).object().orElseThrow();
+        assertEquals(URI.create("https://ex.example/emoji/my%20blob.png"), icon.url().get(0).uri().orElseThrow());
+    }
+
+    @Test
+    void unparseableListEntryIsDropped() throws Exception {
+        ASObject o = read("{\"type\":\"Note\",\"to\":[\"https://a/b\",\"http://exa mple.com/%%\",\"https://a/c\"]}");
+        assertEquals(List.of(URI.create("https://a/b"), URI.create("https://a/c")),
+                o.to().stream().map(x -> x.uri().orElseThrow()).toList());
+    }
+
+    @Test
+    void unparseableSingleValueIsEmpty() throws Exception {
+        ASObject o = read("{\"type\":\"Note\",\"content\":\"c\",\"inReplyTo\":\"http://exa mple.com/%%\","
+                + "\"replies\":\"http://exa mple.com/%%\"}");
+        assertEquals("c", o.content());
+        assertTrue(o.inReplyTo().isEmpty());
+        assertNull(o.replies());
+        Activity a = (Activity) read("{\"type\":\"Create\",\"actor\":\"https://a/u\","
+                + "\"object\":[\"http://exa mple.com/%%\",\"https://a/n\"]}");
+        assertEquals(URI.create("https://a/n"), a.object().uri().orElseThrow());
+        Activity b = (Activity) read("{\"type\":\"Create\",\"object\":\"http://exa mple.com/%%\"}");
+        assertNull(b.object());
+    }
+
     private static List<String> iterableToList(java.util.Iterator<String> it) {
         List<String> l = new java.util.ArrayList<>();
         it.forEachRemaining(l::add);

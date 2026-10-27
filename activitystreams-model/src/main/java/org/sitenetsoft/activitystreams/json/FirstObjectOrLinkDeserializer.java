@@ -8,7 +8,10 @@ import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
 import java.io.IOException;
 import org.sitenetsoft.activitystreams.ObjectOrLink;
 
-/** Like {@link ObjectOrLinkDeserializer}, but an array is accepted and reduced to its first element (empty gives null). */
+/**
+ * Like {@link ObjectOrLinkDeserializer}, but an array is accepted and reduced to its first
+ * element that yields a value (unparseable URIs are skipped, see {@link ObjectOrLinkDeserializer}; empty gives null).
+ */
 public final class FirstObjectOrLinkDeserializer extends StdDeserializer<ObjectOrLink> {
 
     private final ObjectOrLinkDeserializer single = new ObjectOrLinkDeserializer();
@@ -29,7 +32,10 @@ public final class FirstObjectOrLinkDeserializer extends StdDeserializer<ObjectO
             }
             try (JsonParser ep = element.traverse(p.getCodec())) {
                 ep.nextToken();
-                return single.deserialize(ep, ctxt);
+                ObjectOrLink value = single.deserialize(ep, ctxt);
+                if (value != null) {
+                    return value;
+                }
             }
         }
         return null;
