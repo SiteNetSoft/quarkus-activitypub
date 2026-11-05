@@ -140,6 +140,9 @@ public class ActivityPubImpl implements ActivityPub {
         return publish(actor, wrap(new Create(), actor, object));
     }
 
+    /**
+     * @throws IllegalArgumentException unless {@code object.id()} is a stored local object attributed to {@code actor}
+     */
     @Override
     public Activity update(LocalActor actor, ASObject object) {
         if (object.id() == null) {
@@ -148,7 +151,21 @@ public class ActivityPubImpl implements ActivityPub {
         if (object.updated() == null) {
             object.updated(clock.instant());
         }
-        return publish(actor, wrap(new Update(), actor, object));
+        Activity update = wrap(new Update(), actor, object);
+        RemoteRecipients remote = recipients.prefetch(update);
+        return transactions.inTransaction(() -> {
+            if (!ownsLocalObject(actor, object.id())) {
+                throw new IllegalArgumentException(object.id() + " is not a local object attributed to " + actor.id());
+            }
+            return doPublish(actor, update, remote);
+        });
+    }
+
+    /** Whether {@code objectId} is local and the stored object is attributed to {@code actor}. */
+    private boolean ownsLocalObject(LocalActor actor, URI objectId) {
+        return urls.isLocal(objectId) && stores.objects().find(objectId)
+                .filter(o -> o.attributedTo().stream().anyMatch(a -> a.uri().filter(actor.id()::equals).isPresent()))
+                .isPresent();
     }
 
     /** {@code activity} by {@code actor} carrying {@code object}, with the object's audience. */
@@ -181,10 +198,7 @@ public class ActivityPubImpl implements ActivityPub {
         delete.cc(ObjectOrLink.of(urls.followers(actor.username())));
         RemoteRecipients remote = recipients.prefetch(delete);
         return transactions.inTransaction(() -> {
-            boolean own = urls.isLocal(objectId) && stores.objects().find(objectId)
-                    .filter(o -> o.attributedTo().stream().anyMatch(a -> a.uri().filter(actor.id()::equals).isPresent()))
-                    .isPresent();
-            if (!own) {
+            if (!ownsLocalObject(actor, objectId)) {
                 throw new IllegalArgumentException(objectId + " is not a local object attributed to " + actor.id());
             }
             stores.objects().tombstone(objectId);
