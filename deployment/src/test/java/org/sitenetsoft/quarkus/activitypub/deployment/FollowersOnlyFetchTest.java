@@ -27,6 +27,7 @@ public class FollowersOnlyFetchTest {
             .overrideConfigKey("quarkus.activitypub.base-url", TestActors.BASE);
 
     static final URI ALICE_FOLLOWERS = URI.create(TestActors.ALICE + "/followers");
+    static final URI BOB_FOLLOWERS = URI.create(TestActors.BOB + "/followers");
     static final URI CAROL = URI.create(TestSignatures.CAROL);
     static final URI DAVE = URI.create("https://remote.example/users/dave");
     static final URI INBOX = URI.create("https://remote.example/inbox");
@@ -87,5 +88,36 @@ public class FollowersOnlyFetchTest {
         stores.followers().remove(URI.create(TestActors.ALICE), CAROL);
         TestSignatures.signedGet(TestSignatures.CAROL_KEY, "/objects/fo5").when().get("/objects/fo5")
                 .then().statusCode(200).header("Cache-Control", "private");
+    }
+
+    // bob is a second local actor (registered by TestActors): following him gives no access to alice's objects
+
+    @Test
+    void anotherActorsFollowersCollectionDoesNotGrantAccess() {
+        // attributed to alice but addressed to bob's followers: only alice's followers collection counts
+        followersNote("fo6", BOB_FOLLOWERS);
+        stores.followers().remove(URI.create(TestActors.ALICE), CAROL);
+        stores.followers().add(URI.create(TestActors.BOB), CAROL, INBOX, FollowState.ACCEPTED,
+                URI.create(CAROL + "/follows/bob-1"));
+        try {
+            TestSignatures.signedGet(TestSignatures.CAROL_KEY, "/objects/fo6").when().get("/objects/fo6")
+                    .then().statusCode(404);
+        } finally {
+            stores.followers().remove(URI.create(TestActors.BOB), CAROL);
+        }
+    }
+
+    @Test
+    void followerOfAnotherActorGets404() {
+        followersNote("fo7", ALICE_FOLLOWERS);
+        stores.followers().remove(URI.create(TestActors.ALICE), CAROL);
+        stores.followers().add(URI.create(TestActors.BOB), CAROL, INBOX, FollowState.ACCEPTED,
+                URI.create(CAROL + "/follows/bob-2"));
+        try {
+            TestSignatures.signedGet(TestSignatures.CAROL_KEY, "/objects/fo7").when().get("/objects/fo7")
+                    .then().statusCode(404);
+        } finally {
+            stores.followers().remove(URI.create(TestActors.BOB), CAROL);
+        }
     }
 }
