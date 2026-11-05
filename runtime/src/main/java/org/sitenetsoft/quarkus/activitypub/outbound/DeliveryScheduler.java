@@ -114,7 +114,7 @@ public class DeliveryScheduler {
                 store.update(done);
                 LOG.debugf("Delivery %s to %s failed: %s", d.id(), d.inbox(), RecipientResolver.BLOCKED_DOMAIN);
                 metrics.attempt("failed");
-                fire(failed, new DeliveryFailed(done, RecipientResolver.BLOCKED_DOMAIN, false));
+                Events.fireQuietly(failed, new DeliveryFailed(done, RecipientResolver.BLOCKED_DOMAIN, false));
                 continue;
             }
             Optional<Instant> paused = hosts.computeIfAbsent(d.host(), store::host).pausedUntil().filter(now::isBefore);
@@ -165,7 +165,7 @@ public class DeliveryScheduler {
             store.recordHostResult(d.host(), true, at);
             LOG.debugf("Delivery %s of %s to %s: %s", d.id(), d.activityId(), d.inbox(), outcome.describe());
             metrics.attempt("delivered");
-            fire(completed, new DeliveryCompleted(done));
+            Events.fireQuietly(completed, new DeliveryCompleted(done));
             return;
         }
         String error = outcome.describe();
@@ -177,7 +177,7 @@ public class DeliveryScheduler {
             }
             LOG.debugf("Delivery %s of %s to %s failed: %s", d.id(), d.activityId(), d.inbox(), error);
             metrics.attempt("failed");
-            fire(failed, new DeliveryFailed(done, error, false));
+            Events.fireQuietly(failed, new DeliveryFailed(done, error, false));
             return;
         }
         store.recordHostResult(d.host(), false, at);
@@ -193,20 +193,12 @@ public class DeliveryScheduler {
         LOG.debugf("Delivery %s of %s to %s, attempt %d: %s%s", d.id(), d.activityId(), d.inbox(), tried.attempts(),
                 error, retry ? "; retry at " + done.nextAttempt() : "; given up");
         metrics.attempt(retry ? "retry" : "given_up");
-        fire(failed, new DeliveryFailed(done, error, retry));
+        Events.fireQuietly(failed, new DeliveryFailed(done, error, retry));
     }
 
     /** 408, 429, 5xx, transport errors, and 401/403 left after double knocking. */
     static boolean retryable(int status) {
         return status == -1 || status == 401 || status == 403 || status == 408 || status == 429 || status >= 500;
-    }
-
-    private static <T> void fire(Event<T> event, T payload) {
-        try {
-            event.fire(payload);
-        } catch (RuntimeException e) {
-            LOG.warnf(e, "Observer of %s failed", payload.getClass().getSimpleName());
-        }
     }
 
     @PreDestroy

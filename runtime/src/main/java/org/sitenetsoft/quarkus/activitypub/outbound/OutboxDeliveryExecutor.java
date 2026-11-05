@@ -47,6 +47,22 @@ public class OutboxDeliveryExecutor implements DeliveryExecutor {
 
     @Override
     public void submit(List<Delivery> deliveries) {
+        stores.deliveries().save(prepare(deliveries));
+    }
+
+    /**
+     * Goes through {@link #submit} (so a subclass overriding it is honoured) with the deliveries already
+     * {@linkplain #prepare prepared}, and returns them as saved. Preparing again inside {@code submit} changes nothing.
+     */
+    @Override
+    public List<Delivery> accept(List<Delivery> deliveries) {
+        List<Delivery> prepared = prepare(deliveries);
+        submit(prepared);
+        return prepared;
+    }
+
+    /** Gives up the pending deliveries to dead hosts; the rest is unchanged. Idempotent. */
+    protected List<Delivery> prepare(List<Delivery> deliveries) {
         Instant now = clock.instant();
         Map<String, HostHealth> hosts = new HashMap<>();
         List<Delivery> out = new ArrayList<>(deliveries.size());
@@ -64,7 +80,7 @@ public class OutboxDeliveryExecutor implements DeliveryExecutor {
                 out.add(d);
             }
         }
-        stores.deliveries().save(out);
+        return out;
     }
 
     private boolean isDead(HostHealth host, Instant now) {

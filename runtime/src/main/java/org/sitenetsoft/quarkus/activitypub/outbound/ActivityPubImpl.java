@@ -3,10 +3,12 @@ package org.sitenetsoft.quarkus.activitypub.outbound;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
 
 import org.jboss.logging.Logger;
@@ -29,7 +31,11 @@ import org.sitenetsoft.quarkus.activitypub.ActivityPubUrls;
 import org.sitenetsoft.quarkus.activitypub.Ids;
 import org.sitenetsoft.quarkus.activitypub.actor.LocalActor;
 import org.sitenetsoft.quarkus.activitypub.client.ActivityPubClient;
+import org.sitenetsoft.quarkus.activitypub.outbound.DeliveryEvents.DeliveriesSubmitted;
+import org.sitenetsoft.quarkus.activitypub.outbound.DeliveryEvents.DeliveryFailed;
 import org.sitenetsoft.quarkus.activitypub.outbound.RecipientResolver.RemoteRecipients;
+import org.sitenetsoft.quarkus.activitypub.store.Delivery;
+import org.sitenetsoft.quarkus.activitypub.store.DeliveryState;
 import org.sitenetsoft.quarkus.activitypub.store.FollowRelation;
 import org.sitenetsoft.quarkus.activitypub.store.FollowState;
 import org.sitenetsoft.quarkus.activitypub.store.Stores;
@@ -66,6 +72,12 @@ public class ActivityPubImpl implements ActivityPub {
 
     @Inject
     DeliveryExecutor executor;
+
+    @Inject
+    Event<DeliveriesSubmitted> submitted;
+
+    @Inject
+    Event<DeliveryFailed> failed;
 
     @Inject
     ActivityPubClient client;
@@ -112,7 +124,13 @@ public class ActivityPubImpl implements ActivityPub {
             stores.objects().putLocal(stored.embeddedObject().orElseThrow(), isPublic);
         }
         stores.objects().putLocal(stored, isPublic);
-        executor.submit(recipients.resolve(actor, activity, remote));
+        List<Delivery> saved = executor.accept(recipients.resolve(actor, activity, remote));
+        for (Delivery d : saved) {
+            if (d.state() == DeliveryState.FAILED || d.state() == DeliveryState.GIVEN_UP) {
+                Events.fireQuietly(failed, new DeliveryFailed(d, d.lastError().orElse(null), false));
+            }
+        }
+        Events.fireQuietly(submitted, new DeliveriesSubmitted(activity.id(), List.copyOf(saved)));
         LOG.debugf("%s %s published by %s", activity.primaryType(), activity.id(), actor.id());
         return activity;
     }
